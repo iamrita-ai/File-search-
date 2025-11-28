@@ -2,3 +2,5 @@ pyrogram
 tgcrypto
 motor
 pymongo
+flask
+dnspython
