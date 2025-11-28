@@ -17,7 +17,7 @@ MONGO_URL   = os.getenv("MONGO_URL")        # MongoDB URL
 # ---------------------------
 OWNER_ID    = 1598576202                     # Your Telegram ID (Admin)
 LOG_CHANNEL = -1003286415377                 # Log channel ID (where all logs will go)
-SOURCE_CHANNELS = -1003392099253, -1002222222222]  # List of source channel IDs from where bot will fetch files
+SOURCE_CHANNELS = -1003392099253, -1002222222222  # List of source channel IDs from where bot will fetch files
 
 # ---------------------------
 # Pyrogram Client Setup
