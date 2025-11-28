@@ -3,29 +3,44 @@ import asyncio
 from datetime import datetime
 from pyrogram import Client, filters
 from motor.motor_asyncio import AsyncIOMotorClient
+from flask import Flask
+import threading
 
-# ------- STATIC CONFIG (Saved In Code) -------
+# ------------ FLASK SERVER (RENDER PORT FIX) ------------
+flask_app = Flask(__name__)
+
+@flask_app.route('/')
+def home():
+    return "Telegram Bot is Running on Render Web Service!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
+
+# Start Flask in background thread
+threading.Thread(target=run_flask).start()
+
+# ------------ STATIC CONFIG ------------
 OWNER_ID = 1598576202
 LOG_CHANNEL = -1003286415377
 BOT_USERNAME = "@Netflix_webseriesbot"
 BOT_CREDIT = "@technicalserena"
 
-# Default source channels (Also editable via /add_channel)
 SOURCE_CHANNELS = [-1003392099253, -1002222222222]
 
-# ------- ENV LOADING -------
+# ------------ ENV LOADING ------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
-# ------- MONGO SETUP -------
+# ------------ MONGO ------------
 mongo_client = AsyncIOMotorClient(MONGO_DB_URI)
 db = mongo_client["TelegramBotDB"]
 users_col = db["Users"]
 config_col = db["Config"]
 
-# ------- BOT DEFINE -------
+# ------------ BOT CLIENT ------------
 app = Client(
     "SerenaRomanticBot",
     api_id=API_ID,
@@ -33,20 +48,20 @@ app = Client(
     bot_token=BOT_TOKEN,
 )
 
-# -------- SAFE 10-SECOND MESSAGE SENDING --------
+# ------------ SAFE MESSAGE SENDER ------------
 async def safe_send(client, chat_id, text):
     await asyncio.sleep(1)
     await client.send_message(chat_id, text)
     await asyncio.sleep(10)
 
-# -------- LOAD SOURCE CHANNELS FROM DB --------
+# ------------ LOAD CHANNEL LIST ------------
 async def load_source_channels():
     global SOURCE_CHANNELS
     cfg = await config_col.find_one({"_id": "source_channels"})
     if cfg:
         SOURCE_CHANNELS = cfg["channels"]
 
-# -------- SAVE SOURCE CHANNELS TO DB --------
+# ------------ SAVE CHANNEL LIST ------------
 async def save_source_channels():
     await config_col.update_one(
         {"_id": "source_channels"},
@@ -54,7 +69,7 @@ async def save_source_channels():
         upsert=True
     )
 
-# -------- START COMMAND --------
+# ------------ START CMD ------------
 @app.on_message(filters.command("start"))
 async def start_cmd(client, message):
     user_id = message.from_user.id
@@ -71,7 +86,7 @@ async def start_cmd(client, message):
 
     await client.send_message(LOG_CHANNEL, f"🟢 User Started: `{user_id}`")
 
-# -------- ADD CHANNEL COMMAND (OWNER ONLY) --------
+# ------------ ADD CHANNEL ------------
 @app.on_message(filters.command("add_channel") & filters.user(OWNER_ID))
 async def add_channel_cmd(client, message):
     global SOURCE_CHANNELS
@@ -90,7 +105,7 @@ async def add_channel_cmd(client, message):
     except Exception as e:
         await message.reply(f"Error: {e}")
 
-# -------- FORWARDING LOGIC --------
+# ------------ FORWARD LOGIC ------------
 @app.on_message(filters.channel)
 async def channel_forward(client, message):
     global SOURCE_CHANNELS
@@ -101,11 +116,10 @@ async def channel_forward(client, message):
     try:
         await message.copy(LOG_CHANNEL)
         await safe_send(client, LOG_CHANNEL, "✔ File saved successfully.")
-
     except Exception as e:
         await safe_send(client, LOG_CHANNEL, f"❌ Error: {e}")
 
-# -------- BROADCAST (OWNER ONLY) --------
+# ------------ BROADCAST ------------
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
 async def broadcast(client, message):
     text = message.text.replace("/broadcast", "").strip()
@@ -122,16 +136,14 @@ async def broadcast(client, message):
 
     await message.reply(f"Broadcast sent to {count} users.")
 
-# -------- ALIVE CHECK --------
+# ------------ ALIVE CHECK ------------
 @app.on_message(filters.command("alive"))
 async def alive_cmd(client, message):
     await message.reply("🟢 Bot is running normally.")
 
-# -------- BOT RUN --------
+# ------------ RUN ------------
 print("Booting bot... loading DB Channels...")
-
 asyncio.get_event_loop().run_until_complete(load_source_channels())
-
 print("Source Channels Loaded:", SOURCE_CHANNELS)
 print("Bot Started Successfully.")
 
