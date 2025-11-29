@@ -4,41 +4,31 @@ import asyncio
 import threading
 from datetime import datetime
 from typing import Optional
-
-from flask import Flask
 from pyrogram import Client, filters
-from pyrogram.types import (
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-    Message
-)
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from motor.motor_asyncio import AsyncIOMotorClient
+from flask import Flask
 
 # ---------------- CONFIG ----------------
 OWNER_ID = 1598576202
 BOT_CREDIT = "@technicalserena"
-
 LOG_CHANNEL = int(os.getenv("LOG_CHANNEL", "-1003286415377"))
 SOURCE_CHANNELS = []
 
 # ---------------- ENV ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = os.getenv("API_ID")
+API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
-if API_ID:
-    API_ID = int(API_ID)
-
-# ---------------- MONGO SETUP ----------------
+# ---------------- MONGO ----------------
 mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI is not None else None
 db = mongo_client["TelegramBotDB"] if mongo_client is not None else None
-
 users_col = db["Users"] if db is not None else None
 config_col = db["Config"] if db is not None else None
 pending_col = db["Pending"] if db is not None else None
 
-# ---------------- PYROGRAM BOT ----------------
+# ---------------- PYROGRAM ----------------
 app = Client(
     "SerenaRomanticBot",
     api_id=API_ID,
@@ -48,18 +38,15 @@ app = Client(
 
 # ---------------- FLASK FOR RENDER ----------------
 flask_app = Flask("serena_dummy")
-
 @flask_app.route("/")
 def homepage():
     return "Serena Bot is alive ❤️"
-
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host="0.0.0.0", port=port)
-
 threading.Thread(target=run_flask, daemon=True).start()
 
-# ---------------- UTIL ----------------
+# ---------------- UTILS ----------------
 async def fast_send(client, chat_id, text, **kwargs):
     return await client.send_message(chat_id, text, **kwargs)
 
@@ -71,34 +58,20 @@ async def slow_send(client, chat_id, text, delay=10, **kwargs):
 # ---------------- DB HELPERS ----------------
 async def load_source_channels():
     global SOURCE_CHANNELS
-    if config_col is None:
-        return
-
-    cfg = await config_col.find_one({"_id": "source_channels"})
-    if cfg is not None and isinstance(cfg.get("channels"), list):
-        SOURCE_CHANNELS = cfg["channels"]
-    else:
-        await config_col.update_one(
-            {"_id": "source_channels"},
-            {"$set": {"channels": SOURCE_CHANNELS}},
-            upsert=True
-        )
+    if config_col is not None:
+        cfg = await config_col.find_one({"_id": "source_channels"})
+        if cfg is not None and isinstance(cfg.get("channels"), list):
+            SOURCE_CHANNELS = cfg["channels"]
+        else:
+            await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def save_source_channels():
     if config_col is not None:
-        await config_col.update_one(
-            {"_id": "source_channels"},
-            {"$set": {"channels": SOURCE_CHANNELS}},
-            upsert=True
-        )
+        await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def set_pending_action(user_id, action):
     if pending_col is not None:
-        await pending_col.update_one(
-            {"user_id": user_id},
-            {"$set": {"action": action}},
-            upsert=True
-        )
+        await pending_col.update_one({"user_id": user_id}, {"$set":{"action":action}}, upsert=True)
 
 async def get_pending_action(user_id):
     if pending_col is None:
@@ -112,161 +85,147 @@ async def clear_pending_action(user_id):
     if pending_col is not None:
         await pending_col.delete_one({"user_id": user_id})
 
-# ---------------- START COMMAND ----------------
+# ---------------- START ----------------
 @app.on_message(filters.command("start"))
-async def start_cmd(client, message):
+async def start_cmd(client: Client, message: Message):
     user = message.from_user
     name = user.first_name if user else "Sweetheart"
-
     text = (
         f"✨ Hey *{name}* — I'm your romantic bot 💞\n\n"
-        "Tumhare liye always here… files search, save, aur sab kuch. 💋\n"
+        "Tumhare liye files forward karne ke liye ready hoon 💋"
     )
-
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("💖 My Creator", url="https://t.me/technicalserena")],
-            [InlineKeyboardButton("📮 Contact Owner", url="https://t.me/technicalserena")]
+            [InlineKeyboardButton("💖 Contact Me", url=f"https://t.me/{BOT_CREDIT.lstrip('@')}")]
         ]
     )
-
-    await fast_send(client, message.chat.id, text, parse_mode="markdown")
-    await message.reply("💌 Menu open karo baby…", reply_markup=keyboard)
-
+    await fast_send(client, message.chat.id, text, parse_mode="markdown", reply_markup=keyboard)
     if users_col is not None:
-        await users_col.update_one(
-            {"user_id": user.id},
-            {"$set": {"last_active": datetime.utcnow()}},
-            upsert=True
-        )
+        await users_col.update_one({"user_id": user.id},{"$set":{"last_active":datetime.utcnow()}},upsert=True)
 
 # ---------------- HELP ----------------
 @app.on_message(filters.command("help"))
-async def help_cmd(client, message):
+async def help_cmd(client: Client, message: Message):
     txt = (
-        "📘 *Sweetheart Help Menu*\n\n"
-        "/start — Wake me up 💞\n"
-        "/alive — Check me 🔥\n"
-        "/addchannel — Add source channel ➕ (Owner)\n"
-        "/broadcast <msg> — Send to all users 📣 (Owner)\n"
-        "/restart — Restart bot 🔄 (Owner)\n"
-        "/cancel — Cancel action ❌\n"
+        "📘 *Help Menu*\n\n"
+        "/start — Start bot 💞\n"
+        "/alive — Check if bot is alive 🔥\n"
+        "/addchannel — Add source channel ➕ (Owner only)\n"
+        "/broadcast <text> — Send message to all users 📣 (Owner only)\n"
+        "/restart — Restart bot 🔄 (Owner only)\n"
+        "/cancel — Cancel pending action ❌\n"
+        "/ban <user_id> — Ban a user 🚫 (Owner only)\n"
+        "/unban <user_id> — Unban user 🔓 (Owner only)"
     )
     await fast_send(client, message.chat.id, txt, parse_mode="markdown")
 
 # ---------------- ALIVE ----------------
 @app.on_message(filters.command("alive"))
-async def alive_cmd(client, message):
-    await fast_send(client, message.chat.id, "🔥 Alive sweetheart…")
+async def alive_cmd(client: Client, message: Message):
+    await fast_send(client, message.chat.id, "🔥 Alive and ready for you 💋")
 
 # ---------------- RESTART ----------------
 @app.on_message(filters.command("restart") & filters.user(OWNER_ID))
-async def restart_cmd(client, message):
+async def restart_cmd(client: Client, message: Message):
     await fast_send(client, message.chat.id, "🔄 Restarting baby…")
     os.system("kill 1")
 
 # ---------------- CANCEL ----------------
 @app.on_message(filters.command("cancel"))
-async def cancel_cmd(client, message):
+async def cancel_cmd(client: Client, message: Message):
     await clear_pending_action(message.from_user.id)
-    await fast_send(client, message.chat.id, "❌ Cancelled baby.")
+    await fast_send(client, message.chat.id, "❌ Cancelled action")
 
 # ---------------- BROADCAST ----------------
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
-async def broadcast_cmd(client, message):
-    text = message.text.replace("/broadcast", "").strip()
+async def broadcast_cmd(client: Client, message: Message):
+    text = message.text.replace("/broadcast","").strip()
     if not text:
-        return await fast_send(client, message.chat.id, "Broadcast text do baby…")
-
-    count = 0
+        return await fast_send(client, message.chat.id,"Broadcast text required")
+    count=0
     if users_col is not None:
         async for user in users_col.find({}):
             try:
-                await fast_send(client, user["user_id"], text)
-                count += 1
+                await fast_send(client,user["user_id"],text)
+                count+=1
             except:
                 pass
-
-    await fast_send(client, message.chat.id, f"📣 Done. Sent to {count} users.")
+    await fast_send(client, message.chat.id, f"📣 Broadcast sent to {count} users")
 
 # ---------------- ADD CHANNEL ----------------
 @app.on_message(filters.command("addchannel") & filters.user(OWNER_ID))
-async def addchannel_start(client, message):
-    await set_pending_action(message.from_user.id, "await_channel")
-    await fast_send(client, message.chat.id, "➕ Send channel ID now baby…")
+async def addchannel_start(client: Client, message: Message):
+    await set_pending_action(message.from_user.id,"await_channel_id")
+    await fast_send(client,message.chat.id,"➕ Send the channel ID now ❤️")
 
 @app.on_message(filters.private & ~filters.command([]))
-async def private_messages(client, message):
+async def private_messages(client: Client, message: Message):
     user_id = message.from_user.id
     action = await get_pending_action(user_id)
-
-    if action == "await_channel" and user_id == OWNER_ID:
-        chan = message.text.strip()
+    if action=="await_channel_id" and user_id==OWNER_ID:
+        text = message.text.strip()
         try:
-            if chan.startswith("@"):
-                ch = await client.get_chat(chan)
+            if text.startswith("@"):
+                ch = await client.get_chat(text)
                 cid = ch.id
             else:
-                cid = int(chan)
+                cid = int(text)
         except Exception as e:
-            await fast_send(client, message.chat.id, f"Error: {e}")
+            await fast_send(client,message.chat.id,f"❌ Invalid channel: {e}")
+            await clear_pending_action(user_id)
             return
-
         if cid not in SOURCE_CHANNELS:
             SOURCE_CHANNELS.append(cid)
             await save_source_channels()
-
-        await fast_send(client, message.chat.id, f"✔ Added: `{cid}`", parse_mode="markdown")
+        await fast_send(client,message.chat.id,f"✅ Channel added: `{cid}`",parse_mode="markdown")
         await clear_pending_action(user_id)
         return
 
-    # Normal search
-    query = message.text.lower().strip()
-    await fast_send(client, message.chat.id, "🔎 Searching baby…")
-
-    found = []
-    async for msg in client.get_chat_history(LOG_CHANNEL, limit=700):
-        cap = (msg.caption or "").lower()
-        filename = ""
-
-        if msg.document and msg.document.file_name:
-            filename = msg.document.file_name.lower()
-        if msg.video and msg.video.file_name:
-            filename = msg.video.file_name.lower()
-
-        if query in cap or query in filename:
-            found.append(msg)
-
-        if len(found) >= 6:
+    # If user is sending file name to search
+    query = (message.text or "").strip().lower()
+    if not query:
+        return
+    await fast_send(client,message.chat.id,"🔎 Searching…")
+    found=[]
+    # Scan log channel messages
+    async for m in client.get_chat_history(LOG_CHANNEL, limit=500):
+        cap=(m.caption or "").lower() if m.caption else ""
+        fname=""
+        if m.document and getattr(m.document,"file_name",None):
+            fname=m.document.file_name.lower()
+        if m.video and getattr(m.video,"file_name",None):
+            fname=m.video.file_name.lower()
+        if query in cap or query in fname:
+            found.append(m)
+        if len(found)>=6:
             break
-
     if not found:
-        return await fast_send(client, message.chat.id, "😔 Kuch nahi mila baby…")
-
-    for m in found:
+        await fast_send(client,message.chat.id,"😔 No files found baby…")
+        return
+    # Send top results instantly
+    for msg in found:
         try:
-            await m.copy(message.chat.id)
-            await asyncio.sleep(0.8)
+            await msg.forward(message.chat.id)
         except:
             pass
 
-# ---------------- SAVE SOURCE ----------------
+# ---------------- SAVE SOURCE CHANNEL MESSAGES ----------------
 @app.on_message(filters.channel)
-async def channel_forward(client, message):
+async def source_channel_forward(client: Client, message: Message):
     if message.chat.id not in SOURCE_CHANNELS:
         return
-
     try:
-        await message.copy(LOG_CHANNEL)
-        await slow_send(client, LOG_CHANNEL, "✔ Saved baby.")
-    except Exception as e:
-        await slow_send(client, LOG_CHANNEL, f"❌ Error: {e}")
+        await message.forward(LOG_CHANNEL)
+        # delay only for source messages
+        await asyncio.sleep(10)
+    except:
+        pass
 
 # ---------------- STARTUP ----------------
 async def startup():
     await load_source_channels()
-    print("Loaded channels:", SOURCE_CHANNELS)
+    print("Source Channels Loaded:", SOURCE_CHANNELS)
 
-if __name__ == "__main__":
+if __name__=="__main__":
     asyncio.get_event_loop().run_until_complete(startup())
     app.run()
