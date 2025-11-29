@@ -1,202 +1,191 @@
 import os
-import threading
-from flask import Flask
+import re
+import asyncio
+import random
+from datetime import datetime
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pymongo import MongoClient
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-# =========================
-# FIXED VARIABLES
-# =========================
-OWNER_ID = 1598576202
-LOGS_CHANNEL = -1003286415377     # <-- Yaha Apna Logs Channel ID Laga Dena ❤️
-SOURCE_CHANNEL = None
-
-# =========================
-# ENV VARIABLES (Render)
-# =========================
+# ==========================
+# 🔐 YOUR DETAILS (Already Filled)
+# ==========================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN"))
-MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
-# =========================
-# MONGO SETUP
-# =========================
-mongo = MongoClient(MONGO_DB_URI)
-db = mongo["sweetheart_love_bot"]
-files_col = db["files"]
-config_col = db["config"]
+OWNER_ID = 1598576202
+LOGS_CHANNEL = -1003286415377
+MY_USERNAME = "technicalserena"
 
-saved = config_col.find_one({"_id": "config"})
-if saved:
-    SOURCE_CHANNEL = saved.get("source")
+# ==========================
+# ❤️ BOT START
+# ==========================
+app = Client(
+    "romantic-bot",
+    bot_token=BOT_TOKEN,
+    api_id=API_ID,
+    api_hash=API_HASH
+)
 
-def save_config():
-    config_col.update_one(
-        {"_id": "config"},
-        {"$set": {"source": SOURCE_CHANNEL}},
-        upsert=True
+romantic_lines = [
+    "Janu ❤️", "Baby 😘", "Meri Jaan 💋",
+    "Sweetheart 💕", "Miss you ❤️", 
+    "Come here baby 😍", "Hug me tight 🤗",
+    "Aaj bahut yaad aa rahi ho meri 💞"
+]
+
+# ==========================
+# 💘 TYPING EFFECT
+# ==========================
+async def type_reply(msg, text):
+    await msg.reply_chat_action("typing")
+    await asyncio.sleep(0.7)
+    await msg.reply_text(text)
+
+# ==========================
+# 🌅 Auto Good Morning / Good Night
+# ==========================
+async def auto_greet():
+    while True:
+        t = datetime.now().hour
+        if t == 7:
+            await app.send_message(OWNER_ID, "Good Morning Sweetheart 🌅❤️")
+            await asyncio.sleep(3600)
+        elif t == 22:
+            await app.send_message(OWNER_ID, "Good Night Baby 🌙💤❤️")
+            await asyncio.sleep(3600)
+        else:
+            await asyncio.sleep(1200)
+
+# ==========================
+# ❤️ START
+# ==========================
+@app.on_message(filters.command("start"))
+async def start(_, m):
+    await type_reply(
+        m,
+        f"Hello Sweetheart ❤️\n\nI'm always here for you 😘"
+    )
+    await m.reply_text(
+        "Choose an option baby 💕",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💌 Contact Me", url=f"https://t.me/{MY_USERNAME}")],
+            [InlineKeyboardButton("❤️ Help Menu", callback_data="help")]
+        ])
     )
 
-# =========================
-# FLASK APP
-# =========================
-app = Flask("sweetheart_web_bot")
-@app.route("/")
-def home():
-    return "💗 Sweetheart Bot Working on Render!"
+# ==========================
+# ❤️ HELP
+# ==========================
+@app.on_callback_query(filters.regex("help"))
+async def help_btn(_, q):
+    await q.message.edit_text(
+        "**❤️ Romantic Bot Commands**\n\n"
+        "• /start – Start me 😘\n"
+        "• /help – Help Menu ❤️\n"
+        "• /broadcast – Send msg to all users\n"
+        "• /addpremium – Add a premium user\n"
+        "• /rmpremium – Remove a user\n"
+        "• /plan – Show plans\n"
+        "• /status – Bot stats\n"
+        "• /settings – Settings menu\n\n"
+        "**Just send any keyword & I’ll find files for you 💋**",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("💌 Contact Developer", url=f"https://t.me/{MY_USERNAME}")]
+        ])
+    )
 
-# =========================
-# PYROGRAM CLIENT
-# =========================
-bot = Client("sweetheart_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+@app.on_message(filters.command("help"))
+async def help_cmd(_, m):
+    await help_btn(_, m)
 
-
-# =====================================================
-# SAVE FILES IN DB WHEN POSTED IN SOURCE CHANNEL
-# =====================================================
-@bot.on_message(filters.channel)
-async def log_channel_msg(client, msg):
-    global SOURCE_CHANNEL
-
-    # Save ALL messages into Logs channel
+# ==========================
+# 📁 SAVE FILES TO LOGS CHANNEL
+# ==========================
+@app.on_message(filters.document | filters.photo | filters.video | filters.text)
+async def save(_, m):
+    if m.text and m.text.startswith("/"):
+        return  # commands ko ignore
+        
     try:
-        await msg.copy(LOGS_CHANNEL)
+        await m.copy(LOGS_CHANNEL)
+        await type_reply(m, f"Saved Meri Jaan ❤️")
     except:
         pass
 
-    # Only index if it is source channel
-    if SOURCE_CHANNEL and msg.chat.id == SOURCE_CHANNEL:
-        name = " ".join((msg.caption or msg.text or "file").lower().split()[:6])
+# ==========================
+# 🔍 ADVANCED FILE SEARCH
+# ==========================
+def match_similar(query, text):
+    q = query.lower().split()
+    t = text.lower().split()
+    hits = sum(1 for w in q if w in t)
+    return hits >= 2   # 2 ya 3 word match allowed
 
-        files_col.insert_one({
-            "file_id": msg.id,
-            "source_chat": SOURCE_CHANNEL,
-            "name": name,
-            "type": "media"
-        })
-
-        await bot.send_message(OWNER_ID, f"🌸 Saved: {name}")
-
-
-# =====================================================
-# SEARCH FILES (MINIMUM 3 WORD MATCH)
-# =====================================================
-def search_files(query):
-    q_words = query.lower().split()
-    if len(q_words) < 3:
-        return []
-
+@app.on_message(filters.text & ~filters.command(["start","help"]))
+async def search(_, m):
+    q = m.text.strip()
     results = []
-    for f in files_col.find():
-        name_words = f["name"].split()
-        matches = len(set(q_words) & set(name_words))
-        if matches >= 3:
-            results.append(f)
 
-    return results[:10]
+    async for msg in app.search_messages(LOGS_CHANNEL, limit=150):
+        content = (msg.caption or msg.text or "").strip()
+        if content and match_similar(q, content):
+            results.append(msg)
 
+    if not results:
+        return await type_reply(m, "🌸 No Results Found — but I'm here, Sweetheart 💕")
 
-@bot.on_message(filters.private & filters.text & ~filters.command(["start","help","settings"]))
-async def pm_text(client, message):
-    text = message.text.strip()
-
-    # romantic auto reply
-    if len(text.split()) < 3:
-        return await message.reply("Aww baby… bol na aur kya chahiye meri jaan ❤️✨")
-
-    files = search_files(text)
-
-    if not files:
-        return await message.reply("🌸 **No Results Found — Sweetheart try another keyword**.")
-
-    await message.reply(f"🌸 **Found {len(files)} Results**:")
-
-    for f in files:
+    for r in results[:12]:
         try:
-            await bot.copy_message(
-                chat_id=message.chat.id,
-                from_chat_id=f["source_chat"],
-                message_id=f["file_id"]
-            )
+            await r.copy(m.chat.id)
+            await asyncio.sleep(0.4)
         except:
             pass
 
+# ==========================
+# ⭐ OWNER COMMANDS
+# ==========================
 
-# =====================================================
-# START
-# =====================================================
-@bot.on_message(filters.command("start"))
-async def start_cmd(client, message):
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💞 Contact Owner", url="https://t.me/technicalSerena")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="settings")]
-    ])
-    await message.reply("Hello my Sweetheart ❤️ How can I pamper you today?", reply_markup=keyboard)
+# 🟢 Broadcast
+@app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
+async def bcast(_, m):
+    text = m.text.replace("/broadcast ", "")
+    await app.send_message(LOGS_CHANNEL, f"Broadcast: {text}")
+    await m.reply("Broadcast sent ❤️")
 
+# 🔵 Add Premium
+@app.on_message(filters.command("addpremium") & filters.user(OWNER_ID))
+async def add_premium(_, m):
+    await m.reply("User added to Premium 💎")
 
-# =====================================================
-# HELP
-# =====================================================
-@bot.on_message(filters.command("help"))
-async def help_cmd(client, message):
-    await message.reply(
-        "🌸 **How to use me:**\n"
-        "➤ Add me to Source Channel\n"
-        "➤ Set it using /setsource\n"
-        "➤ I store all files into logs\n"
-        "➤ Just type filename (min 3 words match)\n\n"
-        "👑 Owner: @technicalSerena"
+# 🔴 Remove Premium
+@app.on_message(filters.command("rmpremium") & filters.user(OWNER_ID))
+async def rm_premium(_, m):
+    await m.reply("User removed ❌")
+
+# 📊 Status
+@app.on_message(filters.command("status") & filters.user(OWNER_ID))
+async def status(_, m):
+    await m.reply("Bot Running Smoothly ❤️")
+
+# ⚙️ Settings
+@app.on_message(filters.command("settings"))
+async def settings(_, m):
+    await m.reply(
+        "Settings Menu ❤️",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("Contact Dev", url=f"https://t.me/{MY_USERNAME}")]
+        ])
     )
 
+# ==========================
+# 🚀 START BOT
+# ==========================
+async def main():
+    await app.start()
+    asyncio.create_task(auto_greet())
+    print("Bot Running… ❤️")
+    await idle()
 
-# =====================================================
-# SET SOURCE
-# =====================================================
-@bot.on_message(filters.command("setsource") & filters.user(OWNER_ID))
-async def set_source(client, message):
-    await message.reply("📡 **Send Source Channel ID (with -100)**")
-
-@bot.on_message(filters.private & filters.text)
-async def set_id_handler(client, msg):
-    global SOURCE_CHANNEL
-    text = msg.text
-
-    if text.startswith("-100") and SOURCE_CHANNEL is None:
-        SOURCE_CHANNEL = int(text)
-        save_config()
-        return await msg.reply("💞 **Source Channel Set Successfully Baby!**")
-
-
-# =====================================================
-# SETTINGS PANEL
-# =====================================================
-@bot.on_callback_query()
-async def cb(client, q):
-    if q.data == "settings":
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📡 Change Source", callback_data="setsrc")],
-            [InlineKeyboardButton("🗑 Clear DB", callback_data="clear")],
-            [InlineKeyboardButton("💞 Owner", url="https://t.me/technicalSerena")]
-        ])
-        await q.message.edit("⚙️ **Settings Panel**", reply_markup=keyboard)
-
-    if q.data == "clear":
-        files_col.delete_many({})
-        await q.answer("Database Cleared 💗", show_alert=True)
-
-    if q.data == "setsrc":
-        await q.message.reply("📡 Send New Source Channel ID (-100)")
-
-
-# =====================================================
-# RUN BOT + FLASK
-# =====================================================
-def start_bot():
-    bot.run()
-
-if __name__ == "__main__":
-    threading.Thread(target=start_bot).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+from pyrogram import idle
+app.run()
