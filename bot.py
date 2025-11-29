@@ -4,30 +4,29 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ===================================================
-# ONLY FIXED VARIABLES (CODE ME HI RAHENGE)
+# FIXED VARIABLES (Code me hi rahenge)
 # ===================================================
-OWNER_ID = 1598576202   # Fixed owner ID
+OWNER_ID = 1598576202
 
-# Automatically set later from bot DM
+# Auto-loaded later from MongoDB
 SOURCE_CHANNEL = None
 LOGS_CHANNEL = None
 
 # ===================================================
-# ENV (Render me fill karoge)
+# ENV VARIABLES (Render me fill karoge)
 # ===================================================
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URL = os.getenv("MONGO_URL")
+MONGO_DB_URI = os.getenv("MONGO_DB_URI")   # <— FIXED NAME
 
 # ===================================================
 # MONGO SETUP
 # ===================================================
-mongo = MongoClient(MONGO_URL)
-db = mongo["love_bot"]
-config_col = db["config"]
+mongo = MongoClient(MONGO_DB_URI)
+db = mongo["sweetheart_love_bot"]
+config_col = db["bot_config"]
 
-# Load saved configs
 saved = config_col.find_one({"_id": "config"})
 if saved:
     SOURCE_CHANNEL = saved.get("source")
@@ -36,7 +35,12 @@ if saved:
 # ===================================================
 # CLIENT
 # ===================================================
-bot = Client("sweetheart_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+bot = Client(
+    "sweetheart_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
 # ===================================================
 # SAVE CONFIG
@@ -50,13 +54,13 @@ def save_config():
 
 
 # ===================================================
-# START
+# /start
 # ===================================================
 @bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💞 Contact Owner", url="https://t.me/technicalSerena")
+            InlineKeyboardButton("💞 Contact My Owner", url="https://t.me/technicalSerena")
         ],
         [
             InlineKeyboardButton("⚙️ Settings", callback_data="open_settings")
@@ -64,34 +68,35 @@ async def start_cmd(client, message):
     ])
 
     await message.reply_text(
-        f"Hello My Sweetheart ❤️\nI'm ready to serve you!",
+        "Hello My Sweetheart ❤️\n\n"
+        "I'm awake just for you… Tell me what you want baby 😘",
         reply_markup=keyboard
     )
 
 
 # ===================================================
-# HELP
+# /help
 # ===================================================
 @bot.on_message(filters.command("help"))
 async def help_cmd(client, message):
     text = (
-        "✨ **How to Use This Bot**\n\n"
-        "➤ Add me to a Source Channel (No admin needed)\n"
-        "➤ Set that channel using /setsource\n"
-        "➤ Set Logs Channel using /setlogs\n"
-        "➤ Now whenever someone writes filename, bot sends matching file\n\n"
-        "🔥 *Bot Features:*\n"
-        "• Romantic replies\n"
-        "• File search system\n"
-        "• Auto-save messages to logs\n"
+        "✨ **How to Use Me, Sweetheart**\n\n"
+        "➤ Add me to your *Source Channel*\n"
+        "➤ Use /setsource to save it\n"
+        "➤ Use /setlogs to save logs channel\n"
+        "➤ I will auto-forward everything\n\n"
+        "🔥 Features:\n"
+        "• Romantic girlfriend-like replies ❤️\n"
+        "• Fast file search system\n"
+        "• Auto logging\n"
         "• Owner control panel\n\n"
-        f"👑 Owner: @technicalSerena"
+        "👑 Owner: @technicalSerena"
     )
     await message.reply_text(text)
 
 
 # ===================================================
-# SETTINGS MENU (2 COLUMN)
+# SETTINGS (2 Column)
 # ===================================================
 async def send_settings(message):
     keyboard = InlineKeyboardMarkup([
@@ -106,7 +111,7 @@ async def send_settings(message):
     ])
 
     await message.reply_text(
-        "⚙️ **Settings Panel** (2-Column Layout):",
+        "⚙️ **Settings Panel** (Beautiful 2-Column View):",
         reply_markup=keyboard
     )
 
@@ -122,7 +127,6 @@ async def settings_cmd(client, message):
 @bot.on_callback_query()
 async def callback_handler(client, query):
     global SOURCE_CHANNEL, LOGS_CHANNEL
-
     data = query.data
 
     if data == "open_settings":
@@ -130,51 +134,49 @@ async def callback_handler(client, query):
         return
 
     if data == "set_source":
-        await query.message.reply("📡 Send me Source Channel ID (with -100)")
+        await query.message.reply("📡 Send me the Source Channel ID (with -100)")
         return
 
     if data == "set_logs":
-        await query.message.reply("📁 Send me Logs Channel ID (with -100)")
+        await query.message.reply("📁 Send Logs Channel ID (with -100)")
         return
 
     if data == "clear_db":
         config_col.delete_many({})
-        await query.answer("Database Cleared Successfully!", show_alert=True)
+        SOURCE_CHANNEL = None
+        LOGS_CHANNEL = None
+        await query.answer("Database cleared successfully 💖", show_alert=True)
         return
 
 
 # ===================================================
-# TEXT HANDLER FOR SETTING CHANNEL IDs
+# PRIVATE TEXT → SET CHANNEL IDs
 # ===================================================
 @bot.on_message(filters.private & filters.text)
 async def private_text_handler(client, message):
     global SOURCE_CHANNEL, LOGS_CHANNEL
-
     text = message.text.strip()
 
     if text.startswith("-100"):
 
-        # If source is not set -> set source
         if SOURCE_CHANNEL is None:
             SOURCE_CHANNEL = int(text)
             save_config()
             return await message.reply("💞 Source Channel Saved Successfully, Sweetheart!")
 
-        # If source exists but logs not set -> set logs
         elif LOGS_CHANNEL is None:
             LOGS_CHANNEL = int(text)
             save_config()
-            return await message.reply("💞 Logs Channel Saved Successfully, Janu!")
+            return await message.reply("💗 Logs Channel Saved Successfully, Janu!")
 
         else:
-            return await message.reply("Both channels are already set ❤️")
+            return await message.reply("Baby… both channels are already set 😘")
 
-    # Romantic auto reply
-    await message.reply("Aww baby tell me more ❤️✨")
+    await message.reply("Aww baby… tell me more ❤️✨")
 
 
 # ===================================================
-# FORWARD SOURCE → LOGS
+# SOURCE → LOGS FORWARDING
 # ===================================================
 @bot.on_message(filters.channel)
 async def handle_channel_posts(client, message):
@@ -184,11 +186,11 @@ async def handle_channel_posts(client, message):
         try:
             await message.copy(LOGS_CHANNEL)
         except Exception as e:
-            await bot.send_message(OWNER_ID, f"Error copying message: {e}")
+            await bot.send_message(OWNER_ID, f"Error copying message:\n{e}")
 
 
 # ===================================================
-# RUN BOT
+# RUN BOT (NO PORT REQUIRED)
 # ===================================================
-print("💞 Sweetheart Bot Ready on Render…")
+print("💗 Sweetheart Bot is running on Render… No port issues.")
 bot.run()
