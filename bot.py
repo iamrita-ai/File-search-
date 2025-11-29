@@ -23,11 +23,11 @@ API_HASH = os.getenv("API_HASH")
 MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
 # ---------------- MONGO ----------------
-mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI is not None else None
-db = mongo_client["TelegramBotDB"] if mongo_client is not None else None
-users_col = db["Users"] if db is not None else None
-config_col = db["Config"] if db is not None else None
-pending_col = db["Pending"] if db is not None else None
+mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI else None
+db = mongo_client["TelegramBotDB"] if mongo_client else None
+users_col = db["Users"] if db else None
+config_col = db["Config"] if db else None
+pending_col = db["Pending"] if db else None
 
 # ---------------- PYROGRAM ----------------
 app = Client(
@@ -62,7 +62,7 @@ async def slow_send(client, chat_id, text, delay=10, **kwargs):
 # ---------------- DB HELPERS ----------------
 async def load_source_channels():
     global SOURCE_CHANNELS
-    if config_col is not None:
+    if config_col:
         cfg = await config_col.find_one({"_id": "source_channels"})
         if cfg and isinstance(cfg.get("channels"), list):
             SOURCE_CHANNELS = cfg["channels"]
@@ -70,11 +70,11 @@ async def load_source_channels():
             await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def save_source_channels():
-    if config_col is not None:
+    if config_col:
         await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def set_pending_action(user_id, action):
-    if pending_col is not None:
+    if pending_col:
         await pending_col.update_one({"user_id": user_id}, {"$set":{"action":action}}, upsert=True)
 
 async def get_pending_action(user_id):
@@ -86,7 +86,7 @@ async def get_pending_action(user_id):
     return doc.get("action")
 
 async def clear_pending_action(user_id):
-    if pending_col is not None:
+    if pending_col:
         await pending_col.delete_one({"user_id": user_id})
 
 # ---------------- START ----------------
@@ -104,8 +104,8 @@ async def start_cmd(client: Client, message: Message):
             [InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu")]
         ]
     )
-    await fast_send(client, message.chat.id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
-    if users_col is not None:
+    await fast_send(client, message.chat.id, text, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+    if users_col:
         await users_col.update_one({"user_id": user.id},{"$set":{"last_active":datetime.utcnow()}},upsert=True)
 
 # ---------------- HELP ----------------
@@ -121,9 +121,10 @@ async def help_cmd(client: Client, message: Message):
         "/restart — Restart bot 🔄 (Owner only)\n"
         "/cancel — Cancel pending action ❌\n"
         "/ban <user_id> — Ban a user 🚫 (Owner only)\n"
-        "/unban <user_id> — Unban user 🔓"
+        "/unban <user_id> — Unban user 🔓\n"
+        "/clear — Clear all bot database 🗑️ (Owner only)"
     )
-    await fast_send(client, message.chat.id, txt, parse_mode=ParseMode.MARKDOWN_V2)
+    await fast_send(client, message.chat.id, txt, parse_mode=ParseMode.MARKDOWN)
 
 # ---------------- ALIVE ----------------
 @app.on_message(filters.command("alive"))
@@ -141,6 +142,17 @@ async def restart_cmd(client: Client, message: Message):
 async def cancel_cmd(client: Client, message: Message):
     await clear_pending_action(message.from_user.id)
     await fast_send(client, message.chat.id, "❌ Cancelled action")
+
+# ---------------- CLEAR ----------------
+@app.on_message(filters.command("clear") & filters.user(OWNER_ID))
+async def clear_database(client: Client, message: Message):
+    if db:
+        collections = await db.list_collection_names()
+        for col in collections:
+            await db[col].delete_many({})
+        await fast_send(client, message.chat.id, "🗑️ All database collections cleared ❤️")
+    else:
+        await fast_send(client, message.chat.id, "❌ Database not connected")
 
 # ---------------- ADD CHANNEL ----------------
 @app.on_message(filters.command("addchannel") & filters.user(OWNER_ID))
@@ -169,7 +181,7 @@ async def settings_menu(client, callback_query):
             [InlineKeyboardButton("❌ Close", callback_data="close_settings")]
         ]
     )
-    await callback_query.message.edit_text("⚙️ *Settings Menu*", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
+    await callback_query.message.edit_text("⚙️ *Settings Menu*", parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
 
 @app.on_callback_query(filters.regex("close_settings"))
 async def close_settings(client, callback_query):
@@ -181,10 +193,8 @@ async def source_channel_forward(client: Client, message: Message):
     if message.chat.id not in SOURCE_CHANNELS:
         return
     try:
-        # Forward to logs channel
-        await message.copy(LOG_CHANNEL)
-        # Optional: forward to user DM (skip if bulk not needed)
-        await asyncio.sleep(10)  # delay for bulk
+        await message.copy(LOG_CHANNEL)  # Save in logs channel
+        await asyncio.sleep(10)  # Delay for bulk messages
     except:
         pass
 
