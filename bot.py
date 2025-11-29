@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.enums import ParseMode
 from motor.motor_asyncio import AsyncIOMotorClient
 from flask import Flask
 
@@ -102,7 +103,7 @@ async def start_cmd(client: Client, message: Message):
             [InlineKeyboardButton("💖 Contact Me", url=f"https://t.me/{BOT_CREDIT.lstrip('@')}")]
         ]
     )
-    await fast_send(client, message.chat.id, text, parse_mode="markdown_v2", reply_markup=keyboard)
+    await fast_send(client, message.chat.id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
     if users_col is not None:
         await users_col.update_one({"user_id": user.id},{"$set":{"last_active":datetime.utcnow()}},upsert=True)
 
@@ -121,7 +122,7 @@ async def help_cmd(client: Client, message: Message):
         "/ban <user_id> — Ban a user 🚫 (Owner only)\n"
         "/unban <user_id> — Unban user 🔓 (Owner only)"
     )
-    await fast_send(client, message.chat.id, txt, parse_mode="markdown_v2")
+    await fast_send(client, message.chat.id, txt, parse_mode=ParseMode.MARKDOWN_V2)
 
 # ---------------- ALIVE ----------------
 @app.on_message(filters.command("alive"))
@@ -178,7 +179,7 @@ async def private_messages(client: Client, message: Message):
         if cid not in SOURCE_CHANNELS:
             SOURCE_CHANNELS.append(cid)
             await save_source_channels()
-        await fast_send(client,message.chat.id,f"✅ Channel added: `{cid}`",parse_mode="markdown_v2")
+        await fast_send(client,message.chat.id,f"✅ Channel added: `{cid}`",parse_mode=ParseMode.MARKDOWN_V2)
         await clear_pending_action(user_id)
         return
 
