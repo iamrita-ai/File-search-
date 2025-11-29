@@ -24,9 +24,9 @@ MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 # ---------------- MONGO ----------------
 mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI else None
 db = mongo_client["TelegramBotDB"] if mongo_client else None
-users_col = db["Users"] if db else None
-config_col = db["Config"] if db else None
-pending_col = db["Pending"] if db else None
+users_col = db["Users"] if db is not None else None
+config_col = db["Config"] if db is not None else None
+pending_col = db["Pending"] if db is not None else None
 
 # ---------------- PYROGRAM ----------------
 app = Client(
