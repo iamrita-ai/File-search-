@@ -18,7 +18,7 @@ LOGS_CHANNEL = None
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_DB_URI = os.getenv("MONGO_DB_URI")  # Render me set
+MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
 # =========================
 # MONGO SETUP
@@ -47,6 +47,10 @@ app = Flask("sweetheart_web_bot")
 @app.route("/")
 def index():
     return "💗 Sweetheart Bot is Running! ❤️"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 # =========================
 # PYROGRAM CLIENT
@@ -160,8 +164,17 @@ async def private_text_handler(client, message):
             await message.reply("Both channels are already set 😘")
             return
 
-    # Simple romantic auto-reply
-    await message.reply("Aww baby… tell me more ❤️✨")
+    # DM file search
+    if SOURCE_CHANNEL:
+        found = False
+        async for msg in bot.get_chat_history(SOURCE_CHANNEL, limit=50):
+            if text.lower() in (msg.caption or "").lower() or text.lower() in (msg.text or "").lower():
+                await msg.copy(message.chat.id)
+                found = True
+        if not found:
+            await message.reply(f"💔 Sorry baby, I couldn't find anything matching your text.")
+    else:
+        await message.reply("💌 Source channel not set yet…")
 
 # =========================
 # FORWARD SOURCE → LOGS
@@ -178,13 +191,8 @@ async def handle_channel_posts(client, message):
 # =========================
 # RUN FLASK + BOT TOGETHER
 # =========================
-def run_bot():
-    bot.run()
-
 if __name__ == "__main__":
-    # Run bot in background thread
-    threading.Thread(target=run_bot).start()
-
-    # Run Flask (blocking, port 10000 default for Render Web Service)
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    # Flask in background thread
+    threading.Thread(target=run_flask).start()
+    # Pyrogram bot in main thread
+    bot.run()
