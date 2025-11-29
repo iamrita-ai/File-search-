@@ -22,8 +22,8 @@ API_HASH = os.getenv("API_HASH")
 MONGO_DB_URI = os.getenv("MONGO_DB_URI")
 
 # ---------------- MONGO ----------------
-mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI else None
-db = mongo_client["TelegramBotDB"] if mongo_client else None
+mongo_client = AsyncIOMotorClient(MONGO_DB_URI) if MONGO_DB_URI is not None else None
+db = mongo_client["TelegramBotDB"] if mongo_client is not None else None
 users_col = db["Users"] if db is not None else None
 config_col = db["Config"] if db is not None else None
 pending_col = db["Pending"] if db is not None else None
@@ -61,7 +61,7 @@ async def slow_send(client, chat_id, text, delay=10, **kwargs):
 # ---------------- DB HELPERS ----------------
 async def load_source_channels():
     global SOURCE_CHANNELS
-    if config_col:
+    if config_col is not None:
         cfg = await config_col.find_one({"_id": "source_channels"})
         if cfg and isinstance(cfg.get("channels"), list):
             SOURCE_CHANNELS = cfg["channels"]
@@ -69,11 +69,11 @@ async def load_source_channels():
             await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def save_source_channels():
-    if config_col:
+    if config_col is not None:
         await config_col.update_one({"_id":"source_channels"}, {"$set":{"channels":SOURCE_CHANNELS}}, upsert=True)
 
 async def set_pending_action(user_id, action):
-    if pending_col:
+    if pending_col is not None:
         await pending_col.update_one({"user_id": user_id}, {"$set":{"action":action}}, upsert=True)
 
 async def get_pending_action(user_id):
@@ -85,7 +85,7 @@ async def get_pending_action(user_id):
     return doc.get("action")
 
 async def clear_pending_action(user_id):
-    if pending_col:
+    if pending_col is not None:
         await pending_col.delete_one({"user_id": user_id})
 
 # ---------------- START ----------------
@@ -103,7 +103,7 @@ async def start_cmd(client: Client, message: Message):
         ]
     )
     await fast_send(client, message.chat.id, text, parse_mode="markdown_v2", reply_markup=keyboard)
-    if users_col:
+    if users_col is not None:
         await users_col.update_one({"user_id": user.id},{"$set":{"last_active":datetime.utcnow()}},upsert=True)
 
 # ---------------- HELP ----------------
@@ -113,7 +113,7 @@ async def help_cmd(client: Client, message: Message):
         "📘 *Help Menu*\n\n"
         "/start — Start bot 💞\n"
         "/alive — Check if bot is alive 🔥\n"
-        "/addchannel — Add source channel ➕ (Owner only)\n"
+        "/addchannel — Add source channel ➕ (Owner only, max 3)\n"
         "/reset — Remove all added source channels ❌ (Owner only)\n"
         "/broadcast <text> — Send message to all users 📣 (Owner only)\n"
         "/restart — Restart bot 🔄 (Owner only)\n"
@@ -216,8 +216,7 @@ async def source_channel_forward(client: Client, message: Message):
         return
     try:
         await message.forward(LOG_CHANNEL)  # Save in logs
-        # Optional: Forward to users if needed → delay 10s only for bulk
-        await asyncio.sleep(10)
+        await asyncio.sleep(10)  # Delay only for bulk forwarding
     except:
         pass
 
