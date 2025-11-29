@@ -95,12 +95,13 @@ async def start_cmd(client: Client, message: Message):
     user = message.from_user
     name = user.first_name if user else "Sweetheart"
     text = (
-        f"✨ Hey *{name}* — I'm your romantic bot 💞\n\n"
-        "Tumhare liye files forward karne ke liye ready hoon 💋"
+        f"💖 Hey *{name}* — I'm your romantic bot 💞\n\n"
+        "Main tumhare liye files forward karne ke liye ready hoon 😘"
     )
     keyboard = InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("💖 Contact Me", url=f"https://t.me/{BOT_CREDIT.lstrip('@')}")]
+            [InlineKeyboardButton("💌 Contact Me", url=f"https://t.me/{BOT_CREDIT.lstrip('@')}")],
+            [InlineKeyboardButton("⚙️ Settings", callback_data="settings_menu")]
         ]
     )
     await fast_send(client, message.chat.id, text, parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
@@ -115,12 +116,12 @@ async def help_cmd(client: Client, message: Message):
         "/start — Start bot 💞\n"
         "/alive — Check if bot is alive 🔥\n"
         "/addchannel — Add source channel ➕ (Owner only, max 3)\n"
-        "/reset — Remove all added source channels ❌ (Owner only)\n"
+        "/reset — Remove all source channels ❌ (Owner only)\n"
         "/broadcast <text> — Send message to all users 📣 (Owner only)\n"
         "/restart — Restart bot 🔄 (Owner only)\n"
         "/cancel — Cancel pending action ❌\n"
         "/ban <user_id> — Ban a user 🚫 (Owner only)\n"
-        "/unban <user_id> — Unban user 🔓 (Owner only)"
+        "/unban <user_id> — Unban user 🔓"
     )
     await fast_send(client, message.chat.id, txt, parse_mode=ParseMode.MARKDOWN_V2)
 
@@ -157,58 +158,22 @@ async def reset_channels(client: Client, message: Message):
     await save_source_channels()
     await fast_send(client,message.chat.id,"✅ All source channels removed 💔")
 
-# ---------------- PRIVATE MSG HANDLER ----------------
-@app.on_message(filters.private & ~filters.command([]))
-async def private_messages(client: Client, message: Message):
-    user_id = message.from_user.id
-    action = await get_pending_action(user_id)
+# ---------------- SETTINGS MENU ----------------
+@app.on_callback_query(filters.regex("settings_menu"))
+async def settings_menu(client, callback_query):
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("➕ Add Source Channel", callback_data="add_channel")],
+            [InlineKeyboardButton("🗑 Reset Settings", callback_data="reset_settings")],
+            [InlineKeyboardButton("📄 Set Log Channel ID", callback_data="set_log_channel")],
+            [InlineKeyboardButton("❌ Close", callback_data="close_settings")]
+        ]
+    )
+    await callback_query.message.edit_text("⚙️ *Settings Menu*", parse_mode=ParseMode.MARKDOWN_V2, reply_markup=keyboard)
 
-    # Add channel flow
-    if action=="await_channel_id" and user_id==OWNER_ID:
-        text = message.text.strip()
-        try:
-            if text.startswith("@"):
-                ch = await client.get_chat(text)
-                cid = ch.id
-            else:
-                cid = int(text)
-        except Exception as e:
-            await fast_send(client,message.chat.id,f"❌ Invalid channel: {e}")
-            await clear_pending_action(user_id)
-            return
-        if cid not in SOURCE_CHANNELS:
-            SOURCE_CHANNELS.append(cid)
-            await save_source_channels()
-        await fast_send(client,message.chat.id,f"✅ Channel added: `{cid}`",parse_mode=ParseMode.MARKDOWN_V2)
-        await clear_pending_action(user_id)
-        return
-
-    # File search in logs
-    query = (message.text or "").strip().lower()
-    if not query:
-        return
-    await fast_send(client,message.chat.id,"🔎 Searching…")
-    found=[]
-    async for m in client.get_chat_history(LOG_CHANNEL, limit=500):
-        cap=(m.caption or "").lower() if m.caption else ""
-        fname=""
-        if m.document and getattr(m.document,"file_name",None):
-            fname=m.document.file_name.lower()
-        if m.video and getattr(m.video,"file_name",None):
-            fname=m.video.file_name.lower()
-        if query in cap or query in fname:
-            found.append(m)
-        if len(found)>=6:
-            break
-    if not found:
-        await fast_send(client,message.chat.id,"😔 No files found baby…")
-        return
-    # Forward top results instantly
-    for msg in found:
-        try:
-            await msg.forward(message.chat.id)
-        except:
-            pass
+@app.on_callback_query(filters.regex("close_settings"))
+async def close_settings(client, callback_query):
+    await callback_query.message.delete()
 
 # ---------------- SOURCE CHANNEL ----------------
 @app.on_message(filters.channel)
@@ -216,8 +181,10 @@ async def source_channel_forward(client: Client, message: Message):
     if message.chat.id not in SOURCE_CHANNELS:
         return
     try:
-        await message.forward(LOG_CHANNEL)  # Save in logs
-        await asyncio.sleep(10)  # Delay only for bulk forwarding
+        # Forward to logs channel
+        await message.copy(LOG_CHANNEL)
+        # Optional: forward to user DM (skip if bulk not needed)
+        await asyncio.sleep(10)  # delay for bulk
     except:
         pass
 
