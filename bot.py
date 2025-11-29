@@ -6,7 +6,7 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
 
 # =========================
-# FIXED VARIABLES
+# CONSTANTS
 # =========================
 OWNER_ID = 1598576202
 SOURCE_CHANNEL = None
@@ -17,8 +17,8 @@ LOGS_CHANNEL = None
 # =========================
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_DB_URI = os.getenv("MONGO_DB_URI")
+BOT_TOKEN = os.getenv("BOT_TOKEN"))
+MONGO_DB_URI = os.getenv("MONGO_DB_URI"))
 
 # =========================
 # MONGO SETUP
@@ -40,20 +40,20 @@ def save_config():
     )
 
 # =========================
-# FLASK APP
+# FLASK APP (Render Alive)
 # =========================
 app = Flask("sweetheart_web_bot")
 
 @app.route("/")
 def index():
-    return "💗 Sweetheart Bot is Running! ❤️"
+    return "Sweetheart Bot Running Successfully 💗"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 # =========================
-# PYROGRAM CLIENT
+# BOT CLIENT
 # =========================
 bot = Client("sweetheart_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -63,11 +63,11 @@ bot = Client("sweetheart_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_T
 @bot.on_message(filters.command("start"))
 async def start_cmd(client, message):
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💞 Contact Owner", url="https://t.me/technicalSerena")],
-        [InlineKeyboardButton("⚙️ Settings", callback_data="open_settings")]
+        [InlineKeyboardButton("Contact Owner", url="https://t.me/technicalSerena")],
+        [InlineKeyboardButton("Settings", callback_data="open_settings")]
     ])
     await message.reply_text(
-        "Hello My Sweetheart ❤️\nI'm awake just for you… Tell me what you want 😘",
+        "Hello sweetheart! 👀\nI'm active and ready.",
         reply_markup=keyboard
     )
 
@@ -77,38 +77,30 @@ async def start_cmd(client, message):
 @bot.on_message(filters.command("help"))
 async def help_cmd(client, message):
     text = (
-        "✨ How to use this bot:\n\n"
-        "1️⃣ Add me to Source Channel\n"
-        "2️⃣ Set it using /setsource\n"
-        "3️⃣ Set Logs channel using /setlogs\n"
-        "4️⃣ Send filename → I will deliver the file\n\n"
-        "🔥 Features:\n"
-        "• Romantic replies ❤️\n"
-        "• Auto-save messages to logs\n"
-        "• Owner control panel\n"
-        "• Fast file search\n\n"
-        f"👑 Owner: @technicalSerena"
+        "✨ How this bot works:\n\n"
+        "• Add me to Source Channel\n"
+        "• Set it using /setsource\n"
+        "• Set Logs using /setlogs\n"
+        "• DM any filename → I will search & send\n\n"
+        f"Owner: @technicalSerena"
     )
     await message.reply_text(text)
 
 # =========================
-# SETTINGS PANEL
+# SETTINGS UI
 # =========================
 async def send_settings(message):
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📡 Set Source", callback_data="set_source"),
-            InlineKeyboardButton("📁 Set Logs", callback_data="set_logs")
+            InlineKeyboardButton("Set Source", callback_data="set_source"),
+            InlineKeyboardButton("Set Logs", callback_data="set_logs")
         ],
         [
-            InlineKeyboardButton("🗑 Clear DB", callback_data="clear_db"),
-            InlineKeyboardButton("👑 Contact Owner", url="https://t.me/technicalSerena")
+            InlineKeyboardButton("Clear DB", callback_data="clear_db"),
+            InlineKeyboardButton("Owner", url="https://t.me/technicalSerena")
         ]
     ])
-    await message.reply_text(
-        "⚙️ Settings Panel (2-column view):",
-        reply_markup=keyboard
-    )
+    await message.reply_text("Settings Panel:", reply_markup=keyboard)
 
 @bot.on_message(filters.command("settings"))
 async def settings_cmd(client, message):
@@ -127,72 +119,78 @@ async def callback_handler(client, query):
         return
 
     if data == "set_source":
-        await query.message.reply("📡 Send Source Channel ID (-100)")
+        await query.message.reply("Send Source Channel ID (-100)")
         return
 
     if data == "set_logs":
-        await query.message.reply("📁 Send Logs Channel ID (-100)")
+        await query.message.reply("Send Logs Channel ID (-100)")
         return
 
     if data == "clear_db":
         config_col.delete_many({})
         SOURCE_CHANNEL = None
         LOGS_CHANNEL = None
-        await query.answer("Database Cleared 💖", show_alert=True)
+        await query.answer("Database Cleared", show_alert=True)
         return
 
 # =========================
-# PRIVATE TEXT HANDLER
+# PRIVATE DM FILE SEARCH FIXED
 # =========================
 @bot.on_message(filters.private & filters.text)
-async def private_text_handler(client, message):
+async def private_text_handler(client, message):    
     global SOURCE_CHANNEL, LOGS_CHANNEL
-    text = message.text.strip()
+    text = message.text.strip().lower()
 
+    # Set Source/Logs
     if text.startswith("-100"):
         if SOURCE_CHANNEL is None:
             SOURCE_CHANNEL = int(text)
             save_config()
-            await message.reply("💞 Source Channel Saved Successfully, Sweetheart!")
+            await message.reply("Source Channel Saved.")
             return
         elif LOGS_CHANNEL is None:
             LOGS_CHANNEL = int(text)
             save_config()
-            await message.reply("💗 Logs Channel Saved Successfully, Janu!")
+            await message.reply("Logs Channel Saved.")
             return
         else:
-            await message.reply("Both channels are already set 😘")
+            await message.reply("Both channels are already set.")
             return
 
-    # DM file search
-    if SOURCE_CHANNEL:
-        found = False
-        async for msg in bot.get_chat_history(SOURCE_CHANNEL, limit=50):
-            if text.lower() in (msg.caption or "").lower() or text.lower() in (msg.text or "").lower():
+    # FILE SEARCH (SUPER FIXED)
+    if not SOURCE_CHANNEL:
+        return await message.reply("Source channel not set.")
+
+    found = False
+
+    async for msg in bot.get_chat_history(SOURCE_CHANNEL, limit=300):
+
+        msg_text = (msg.caption or "").lower() + " " + (msg.text or "").lower()
+
+        if text in msg_text:
+            try:
                 await msg.copy(message.chat.id)
                 found = True
-        if not found:
-            await message.reply(f"💔 Sorry baby, I couldn't find anything matching your text.")
-    else:
-        await message.reply("💌 Source channel not set yet…")
+            except:
+                pass
+
+    if not found:
+        await message.reply("No matching files found.")
 
 # =========================
 # FORWARD SOURCE → LOGS
 # =========================
 @bot.on_message(filters.channel)
 async def handle_channel_posts(client, message):
-    global SOURCE_CHANNEL, LOGS_CHANNEL
     if message.chat.id == SOURCE_CHANNEL:
         try:
             await message.copy(LOGS_CHANNEL)
         except Exception as e:
-            await bot.send_message(OWNER_ID, f"Error copying message: {e}")
+            await bot.send_message(OWNER_ID, f"Forward Error: {e}")
 
 # =========================
-# RUN FLASK + BOT TOGETHER
+# RUN BOT + FLASK
 # =========================
 if __name__ == "__main__":
-    # Flask in background thread
     threading.Thread(target=run_flask).start()
-    # Pyrogram bot in main thread
     bot.run()
