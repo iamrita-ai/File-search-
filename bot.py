@@ -10,7 +10,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 MONGO_DB = os.getenv("MONGO_DB")
-CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")  # Use for GF Chat
+CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")  # GF Chat
 OWNER_ID = 1598576202
 LOGS_CHANNEL = -1003286415377
 PORT = int(os.getenv("PORT", 10000))
@@ -19,13 +19,13 @@ PORT = int(os.getenv("PORT", 10000))
 app = Flask(__name__)
 @app.route("/")
 def home():
-    return "Bot Running Successfully ❤️"
+    return "Bot is Running ❤️"
 
 # ---------------- MONGO -------------------
 mongo = AsyncIOMotorClient(MONGO_DB)
 db = mongo.get_database("FILES_DB")
-users_col = db["users"]
-files_col = db["files"]
+users_col = db.get_collection("users")
+files_col = db.get_collection("files")
 
 # ---------------- BOT ---------------------
 bot = Client(
@@ -131,7 +131,6 @@ async def chat_handler(client, message):
     uid = message.from_user.id
     if uid in user_mode:
         if user_mode[uid] == "gf":
-            # GF Chat using ChatGPT API
             import openai
             openai.api_key = CHATGPT_API_KEY
             resp = openai.ChatCompletion.create(
@@ -141,7 +140,6 @@ async def chat_handler(client, message):
             answer = resp.choices[0].message.content
             await message.reply_text(f"💖 {answer}")
         elif user_mode[uid] == "search":
-            # File search
             results = []
             async for doc in files_col.find():
                 if min_match(message.text, doc["file_name"]):
