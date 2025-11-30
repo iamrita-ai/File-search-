@@ -1,177 +1,229 @@
+# bot.py — Minimal, robust, Render web-service friendly, Pyrogram main loop safe
 import os
 import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from motor.motor_asyncio import AsyncIOMotorClient
+import logging
+from functools import partial
 from flask import Flask
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.filters import create
+import requests
+import random
 
-# ---------------- CONFIG ------------------
+logging.basicConfig(level=logging.INFO)
+
+# ---------------- CONFIG ----------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-MONGO_DB = os.getenv("MONGO_DB")
-CHATGPT_API_KEY = os.getenv("CHATGPT_API_KEY")  # GF Chat
+API_ID = int(os.getenv("API_ID", "0") or 0)
+API_HASH = os.getenv("API_HASH", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # optional
+PORT = int(os.getenv("PORT", "10000"))
+
 OWNER_ID = 1598576202
 LOGS_CHANNEL = -1003286415377
-PORT = int(os.getenv("PORT", 10000))
 
-# ---------------- FLASK -------------------
-app = Flask(__name__)
+# --------------- FLASK keep-alive ---------------
+app = Flask("keepalive")
+
 @app.route("/")
 def home():
-    return "Bot is Running ❤️"
+    return "❤️ Bot is alive"
 
-# ---------------- MONGO -------------------
-mongo = AsyncIOMotorClient(MONGO_DB)
-db = mongo.get_database("FILES_DB")
-users_col = db.get_collection("users")
-files_col = db.get_collection("files")
+def run_flask():
+    # binds port (Render will detect)
+    app.run(host="0.0.0.0", port=PORT)
 
-# ---------------- BOT ---------------------
+# --------------- Pyrogram client ---------------
 bot = Client(
-    "romantic_bot",
+    "serena_minimal",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
+    in_memory=True,
 )
 
-# ---------------- HELPERS -----------------
-async def is_premium(user_id):
-    doc = await users_col.find_one({"user_id": user_id})
-    return doc and doc.get("premium", False)
+# --------------- safe non-command filter ---------------
+def non_command_filter(_, __, msg: Message):
+    return not (msg.text and msg.text.startswith("/"))
+non_command = create(non_command_filter)
 
-def min_match(query, filename):
-    words = query.lower().split()
-    f = filename.lower()
-    return sum(1 for w in words if w in f) >= 3  # minimum 3-word match
+# --------------- in-memory stores (avoid DB issues) ---------------
+IN_MEMORY_MODES = {}       # user_id -> "gf" or "search"
+FILES_STORE = []           # list of {"file_id":..., "type":"document/video/photo", "name": "..."}
 
-# ---------------- COMMANDS -----------------
+# --------------- helpers ---------------
+ROMANTIC_FALLBACKS = [
+    "Jaanu, bolo na… 😘",
+    "Haan baby, main sun rahi hoon ❤️",
+    "Sweetheart, batao kya chahiye? 💕"
+]
+
+def romantic_fallback(_):
+    return random.choice(ROMANTIC_FALLBACKS)
+
+def normalize_words(s: str):
+    return [w for w in s.lower().split() if w]
+
+def match_minimum(query: str, name: str, min_matches: int = 3) -> bool:
+    q = normalize_words(query)
+    n = name.lower()
+    if len(q) < min_matches:
+        # if user sent <3 words, allow any single-word match
+        return any(w in n for w in q)
+    return sum(1 for w in q if w in n) >= min_matches
+
+async def call_openai(prompt: str) -> str:
+    if not OPENAI_API_KEY:
+        return romantic_fallback(prompt)
+    try:
+        payload = {
+            "model": "gpt-3.5-turbo",
+            "messages": [
+                {"role":"system", "content":"You are a romantic girlfriend. Reply sweetly and playfully."},
+                {"role":"user", "content": prompt}
+            ],
+            "temperature": 0.9,
+            "max_tokens": 300
+        }
+        resp = await asyncio.get_running_loop().run_in_executor(None, partial(requests.post,
+            "https://api.openai.com/v1/chat/completions",
+            json=payload,
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type":"application/json"},
+            timeout=20
+        ))
+        resp.raise_for_status()
+        j = resp.json()
+        return j["choices"][0]["message"]["content"]
+    except Exception:
+        return romantic_fallback(prompt)
+
+async def send_log(text: str):
+    try:
+        await bot.send_message(LOGS_CHANNEL, text)
+    except Exception:
+        # ignore logging failure
+        pass
+
+# --------------- commands & handlers ---------------
+
 @bot.on_message(filters.private & filters.command("start"))
-async def start_cmd(client, message):
-    buttons = [
-        [InlineKeyboardButton("Settings ⚙️", callback_data="settings")],
-        [InlineKeyboardButton("Help ❓", callback_data="help")]
-    ]
-    await message.reply_text(
-        "Hi Baby 😘\nMain tumhari Romantic GF bot hoon ❤️\nBoloo na Sweetheart 💋",
-        reply_markup=InlineKeyboardMarkup(buttons)
+async def cmd_start(_, m: Message):
+    IN_MEMORY_MODES[m.from_user.id] = "gf"
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 Chat (GF)", callback_data="mode:gf"),
+         InlineKeyboardButton("🔎 File Search", callback_data="mode:search")],
+        [InlineKeyboardButton("⚙️ Settings", callback_data="open_settings"),
+         InlineKeyboardButton("👑 Owner", url="https://t.me/technicalserena")]
+    ])
+    await m.reply_text(
+        f"🌹 Hi {m.from_user.first_name}! Mode set to *GF Chat* by default.\nType after choosing a mode or use the buttons.",
+        reply_markup=kb
     )
+    await send_log(f"/start by {m.from_user.id}")
 
 @bot.on_message(filters.private & filters.command("help"))
-async def help_cmd(client, message):
-    text = (
+async def cmd_help(_, m: Message):
+    await m.reply_text(
         "Commands:\n"
-        "/start - Start bot\n"
-        "/help - This message\n"
-        "/addpremium - Add user premium (Owner only)\n"
-        "/removepremium - Remove user premium (Owner only)\n"
-        "/ban - Ban user (Owner only)\n"
-        "/unban - Unban user (Owner only)\n"
-        "/status - Bot status\n"
-        "/clear - Clear DB (Owner only)\n\n"
-        "Inline Settings:\n"
-        "Choose Chat Mode: GF Chat (ChatGPT) or File Search"
-    )
-    await message.reply_text(text)
-
-# ---------------- OWNER COMMANDS -----------------
-@bot.on_message(filters.private & filters.command(["addpremium","removepremium","ban","unban","clear","status"]))
-async def owner_cmds(client, message):
-    if message.from_user.id != OWNER_ID:
-        await message.reply_text("❌ You are not the owner.")
-        return
-    cmd = message.text.split()[0][1:]
-    if cmd == "addpremium":
-        user_id = int(message.text.split()[1])
-        await users_col.update_one({"user_id": user_id}, {"$set":{"premium":True}}, upsert=True)
-        await message.reply_text(f"✅ User {user_id} added as premium")
-    elif cmd == "removepremium":
-        user_id = int(message.text.split()[1])
-        await users_col.update_one({"user_id": user_id}, {"$set":{"premium":False}})
-        await message.reply_text(f"✅ User {user_id} removed from premium")
-    elif cmd == "ban":
-        user_id = int(message.text.split()[1])
-        await users_col.update_one({"user_id": user_id}, {"$set":{"banned":True}}, upsert=True)
-        await message.reply_text(f"🚫 User {user_id} banned")
-    elif cmd == "unban":
-        user_id = int(message.text.split()[1])
-        await users_col.update_one({"user_id": user_id}, {"$set":{"banned":False}})
-        await message.reply_text(f"✅ User {user_id} unbanned")
-    elif cmd == "clear":
-        await users_col.delete_many({})
-        await files_col.delete_many({})
-        await message.reply_text("🗑️ Database cleared")
-    elif cmd == "status":
-        await message.reply_text("✅ Bot is running fine!")
-
-# ---------------- SETTINGS PANEL -----------------
-@bot.on_callback_query(filters.regex("settings"))
-async def settings_cb(client, callback):
-    buttons = [
-        [InlineKeyboardButton("GF Chat (ChatGPT) 💕", callback_data="mode_gf")],
-        [InlineKeyboardButton("File Search 📁", callback_data="mode_search")],
-    ]
-    await callback.message.edit_text(
-        "Choose your preferred mode:",
-        reply_markup=InlineKeyboardMarkup(buttons)
+        "/start - Start\n"
+        "/help - This message\n\n"
+        "Use Settings -> choose Chat or File Search.\n"
+        "For File Search send >=3 words for best results."
     )
 
-# ---------------- MODE SELECTION -----------------
-user_mode = {}  # user_id: mode
+@bot.on_callback_query(filters.regex("^open_settings$"))
+async def cb_open_settings(_, q):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💬 GF Chat", callback_data="mode:gf"),
+         InlineKeyboardButton("🔎 File Search", callback_data="mode:search")],
+        [InlineKeyboardButton("❓ Current Mode", callback_data="my_mode")]
+    ])
+    await q.message.edit("Choose a mode:", reply_markup=kb)
+    await q.answer()
 
-@bot.on_callback_query(filters.regex("mode_"))
-async def mode_select(client, callback):
-    mode = callback.data.split("_")[1]
-    user_mode[callback.from_user.id] = mode
-    await callback.answer(f"Mode set to: {mode}")
-    await callback.message.edit_text(f"Mode set successfully to: {mode}")
+@bot.on_callback_query(filters.regex("^mode:"))
+async def cb_mode(_, q):
+    mode = q.data.split(":",1)[1]
+    IN_MEMORY_MODES[q.from_user.id] = mode
+    await q.answer(f"Mode set to {mode}")
+    await q.message.edit_text(f"✅ Mode set to *{mode}*")
 
-# ---------------- MESSAGE HANDLER -----------------
-@bot.on_message(filters.private & filters.text & ~filters.command(["start","help"]))
-async def chat_handler(client, message):
-    uid = message.from_user.id
-    if uid in user_mode:
-        if user_mode[uid] == "gf":
-            import openai
-            openai.api_key = CHATGPT_API_KEY
-            resp = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[{"role":"user","content":message.text}]
-            )
-            answer = resp.choices[0].message.content
-            await message.reply_text(f"💖 {answer}")
-        elif user_mode[uid] == "search":
-            results = []
-            async for doc in files_col.find():
-                if min_match(message.text, doc["file_name"]):
-                    results.append(doc)
-            if not results:
-                await message.reply_text("🌸 No Results Found")
-            else:
-                for r in results[:10]:
-                    await message.reply_document(r["file_id"], caption=f"❤️ Found: {r['file_name']}")
-    else:
-        await message.reply_text("⚠️ Please choose a mode first using /start -> Settings ⚙️")
+@bot.on_callback_query(filters.regex("^my_mode$"))
+async def cb_my_mode(_, q):
+    mode = IN_MEMORY_MODES.get(q.from_user.id, "gf")
+    await q.answer(f"Your mode: {mode}", show_alert=True)
 
-# ---------------- FILE SAVE FROM CHANNEL -----------------
-@bot.on_message(filters.channel & filters.document)
-async def save_files(client, message):
-    await files_col.insert_one({
-        "file_name": message.document.file_name.lower(),
-        "file_id": message.document.file_id
-    })
+# channel file indexing (in-memory)
+@bot.on_message(filters.channel)
+async def channel_index(_, m: Message):
     try:
-        await bot.send_message(LOGS_CHANNEL, f"📦 New file saved: `{message.document.file_name}`")
-    except: pass
+        if m.document:
+            FILES_STORE.append({"file_id": m.document.file_id, "type":"document", "name": (m.document.file_name or m.caption or "").strip().lower()})
+        elif m.video:
+            FILES_STORE.append({"file_id": m.video.file_id, "type":"video", "name": (m.video.file_name or m.caption or "").strip().lower()})
+        elif m.photo:
+            # photos: use caption
+            FILES_STORE.append({"file_id": m.photo.file_id if hasattr(m.photo, "file_id") else None, "type":"photo", "name": (m.caption or "").strip().lower()})
+        # log minimal
+        await send_log(f"Indexed file from channel {m.chat.id}")
+    except Exception:
+        pass
 
-# ---------------- RUN FLASK + BOT -----------------
-async def main():
-    # start flask in background
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=PORT))
+# main private non-command handler
+@bot.on_message(filters.private & filters.text & non_command)
+async def private_text(_, m: Message):
+    uid = m.from_user.id
+    mode = IN_MEMORY_MODES.get(uid, "gf")
+    text = m.text.strip()
+    await send_log(f"{uid}: {text}")
+
+    if mode == "search":
+        # require at least 3 words for best results, but allow shorter queries too
+        if len(normalize_words(text)) < 1:
+            return await m.reply_text("🔎 Send some keywords (3+ words recommended).")
+        matches = [f for f in FILES_STORE if match_minimum(text, f.get("name",""))]
+        if not matches:
+            return await m.reply_text("🌸 No Results Found — try different keywords.")
+        sent = 0
+        for d in matches[:6]:
+            try:
+                if d["type"] == "document":
+                    await bot.send_document(uid, d["file_id"])
+                elif d["type"] == "video":
+                    await bot.send_video(uid, d["file_id"])
+                elif d["type"] == "photo":
+                    await bot.send_photo(uid, d["file_id"])
+                else:
+                    await bot.send_message(uid, f"📁 {d.get('name')}")
+                sent += 1
+            except Exception:
+                pass
+        await m.reply_text(f"Sent {sent} items.")
+        return
+
+    # GF chat mode (OpenAI if key present)
+    if OPENAI_API_KEY:
+        reply = await call_openai(text)
+    else:
+        reply = romantic_fallback(text)
+    await m.reply_text(reply)
+
+# ------------------- startup: Flask in executor + Pyrogram in main loop -------------------
+async def start_services():
+    loop = asyncio.get_running_loop()
+    # start flask so Render detects open port
+    loop.run_in_executor(None, run_flask)
+    logging.info("Flask started on port %s", PORT)
+
+    # start pyrogram
     await bot.start()
-    print("🔥 Bot Launched Successfully!")
-    await asyncio.Event().wait()  # keep running
+    logging.info("🔥 Pyrogram started")
+
+    # keep alive
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(start_services())
+    except Exception as e:
+        logging.exception("startup failed")
