@@ -18,10 +18,10 @@ OWNER_ID = int(os.getenv("OWNER_ID", "6518065496"))
 openai.api_key = OPENAI_KEY
 
 # ----------------- DATABASE -------------------
-db = MongoClient(MONGO_URL)["BABITA_BOT_DB"] if MONGO_URL else None
-users_col = db["users"] if db else None
-premium_col = db["premium"] if db else None
-files_col = db["files"] if db else None
+db = MongoClient(MONGO_URL)["BABITA_BOT_DB"] if MONGO_URL is not None else None
+users_col = db["users"] if db is not None else None
+premium_col = db["premium"] if db is not None else None
+files_col = db["files"] if db is not None else None
 
 # ----------------- FLASK -------------------
 app = Flask(__name__)
@@ -53,7 +53,7 @@ def romantic_reply(text):
     return replies[hash(text) % len(replies)]
 
 def is_premium(uid):
-    return premium_col.find_one({"_id": uid}) is not None
+    return premium_col.find_one({"_id": uid}) is not None if premium_col is not None else False
 
 async def ask_gpt(message):
     try:
@@ -71,7 +71,8 @@ async def ask_gpt(message):
 # ----------------- COMMANDS -------------------
 @bot.on_message(filters.command("start"))
 async def start_cmd(c, m):
-    users_col.update_one({"_id": m.from_user.id}, {"$set": {"name": m.from_user.first_name}}, upsert=True)
+    if users_col is not None:
+        users_col.update_one({"_id": m.from_user.id}, {"$set": {"name": m.from_user.first_name}}, upsert=True)
     await m.reply_text(
         f"Hello {m.from_user.first_name} ❤️\nMain tumhari baby bot hoon 💗",
         reply_markup={
@@ -101,7 +102,8 @@ async def add_premium(c, m):
         uid = int(m.text.split()[1])
     except:
         return await m.reply("User ID do baby ❤️")
-    premium_col.update_one({"_id": uid}, {"$set": {}}, upsert=True)
+    if premium_col is not None:
+        premium_col.update_one({"_id": uid}, {"$set": {}}, upsert=True)
     await m.reply("User ko premium de diya 💗")
 
 @bot.on_message(filters.command("rem"))
@@ -112,13 +114,14 @@ async def remove_premium(c, m):
         uid = int(m.text.split()[1])
     except:
         return await m.reply("User ID do baby")
-    premium_col.delete_one({"_id": uid})
+    if premium_col is not None:
+        premium_col.delete_one({"_id": uid})
     await m.reply("Premium hata diya 💗")
 
 @bot.on_message(filters.command("status"))
 async def status_cmd(c, m):
-    total_users = users_col.count_documents({}) if users_col else 0
-    total_premium = premium_col.count_documents({}) if premium_col else 0
+    total_users = users_col.count_documents({}) if users_col is not None else 0
+    total_premium = premium_col.count_documents({}) if premium_col is not None else 0
     storage = shutil.disk_usage("/")
     used = int((storage.used / storage.total) * 100)
     ping = round((time.time() - m.date.timestamp()) * 1000)
@@ -130,14 +133,16 @@ async def status_cmd(c, m):
 async def clear_db(c, m):
     if m.from_user.id != OWNER_ID:
         return await m.reply("Ye sirf owner ke liye hai 💗")
-    if users_col: users_col.delete_many({})
-    if premium_col: premium_col.delete_many({})
-    if files_col: files_col.delete_many({})
+    if users_col is not None: users_col.delete_many({})
+    if premium_col is not None: premium_col.delete_many({})
+    if files_col is not None: files_col.delete_many({})
     await m.reply("Janu database saaf kar diya 💗")
 
 # ----------------- FILE SAVE -------------------
 @bot.on_message(filters.document | filters.video)
 async def save_files(c, m):
+    if files_col is None:
+        return
     file_id = m.document.file_id if m.document else m.video.file_id
     fname = m.document.file_name if m.document else m.video.file_name
     files_col.insert_one({"file_id": file_id, "name": fname.lower(), "uid": m.from_user.id})
@@ -169,6 +174,8 @@ async def chat_handler(c, m):
 # ----------------- FILE SEARCH -------------------
 @bot.on_message(filters.regex("search ", flags=0))
 async def search_files(c, m):
+    if files_col is None:
+        return
     query = m.text.replace("search ","").strip().lower()
     if len(query.split()) < 3: return await m.reply("Minimum 3 words chahiye baby 💗")
     results = list(files_col.find({"name": {"$regex": query}}))[:10]
@@ -182,7 +189,7 @@ async def main():
     asyncio.to_thread(run_flask)
     await bot.start()
     print("Bot is running ❤️")
-    await idle()  # ✅ Now properly imported
+    await idle()  # ✅ Properly imported
 
 if __name__ == "__main__":
     asyncio.run(main())
