@@ -1,110 +1,220 @@
 import os
+import threading
 import asyncio
-from threading import Thread
+import requests
 from flask import Flask
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineQuery, InlineQueryResultArticle, InputTextMessageContent
-import random
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-# ===========================
-#  FIXED IDs (YOUR VALUES)
-# ===========================
+# ---------------------------------------
+# ENVIRONMENT VARIABLES
+# ---------------------------------------
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 OWNER_ID = 1598576202
 LOGS_CHANNEL = -1003286415377
 
-# ===========================
-#   ENV VALUES
-# ===========================
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-PORT = int(os.getenv("PORT", "10000"))
+# DEFAULTS
+GF_NAME = "Serena"
+WELCOME_TEXT = "Hello Jaanu ❤️\nMain tumhari Serena GF Bot hoon 😘"
 
-# ---------------------------
-#  FLASK SERVER FOR RENDER
-# ---------------------------
+# ---------------------------------------
+# FLASK KEEP-ALIVE (RENDER)
+# ---------------------------------------
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "❤️ Romantic Telegram Bot Running Successfully on Render! ❤️"
+    return "❤️ Serena GF Bot is Running!"
 
 def run_flask():
-    app.run(host="0.0.0.0", port=PORT)
+    port = int(os.getenv("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
-# ----------------------------
-#      PYROGRAM CLIENT
-# ----------------------------
-bot = Client(
-    "romantic_gf_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    in_memory=True
-)
+# ---------------------------------------
+# PYROGRAM BOT
+# ---------------------------------------
+bot = Client("SerenaGF", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ----------------------------
-#  Romantic Responses
-# ----------------------------
-ROMANTIC_LINES = [
-    "Haan baby bolo 😘",
-    "Janu main hoon na ❤️",
-    "Suno sweetheart 💋",
-    "Aapki GF yaha hai baby 😘",
-    "Janeman tum bologe aur main sunungi ❤️",
-    "Tumhare message ka wait rehta hai jaan 💕",
-]
-
-# ----------------------------
-#       HANDLERS
-# ----------------------------
-
-@bot.on_message(filters.private & filters.command("start"))
-async def start_cmd(_, message: Message):
-    await message.reply_text(
-        "Hi Baby 😘\nMain tumhari Romantic GF bot hoon ❤️\nBoloo na Sweetheart 💋"
-    )
-
+# ---------------------------------------
+# CHATGPT AI FUNCTION
+# ---------------------------------------
+def ask_gpt(text):
     try:
-        await bot.send_message(
-            LOGS_CHANNEL,
-            f"🔥 User Started: {message.from_user.id}"
-        )
-    except:
-        pass
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
 
+        data = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a romantic girlfriend. Talk sweet, flirty, emotional, caring, in Hindi with words like Jaanu, Baby, Sweetheart."
+                },
+                {"role": "user", "content": text}
+            ]
+        }
 
-@bot.on_message(filters.private & filters.text & ~filters.command(["start"]))
-async def romantic_reply(_, message: Message):
-    await message.reply_text(random.choice(ROMANTIC_LINES))
+        r = requests.post("https://api.openai.com/v1/chat/completions", json=data, headers=headers)
+        return r.json()["choices"][0]["message"]["content"]
 
+    except Exception as e:
+        return f"Janu... AI reply me thodi problem aa rahi hai 😔\nError: {e}"
 
-@bot.on_inline_query()
-async def inline_mode(_, query: InlineQuery):
-    text = query.query.strip()
+# ---------------------------------------
+# HELP COMMAND
+# ---------------------------------------
+@bot.on_message(filters.command("help"))
+async def help_cmd(_, msg):
+    txt = f"""
+❤️ **Commands Menu — {GF_NAME} GF Bot**
 
-    if len(text) < 3:
-        return
+**/start** – Romantic welcome  
+**/help** – Commands list  
+**/settings** – Open Settings Panel  
+**/alive** – Check bot status  
+**/owner** – Show bot owner  
 
-    await query.answer(
-        results=[
-            InlineQueryResultArticle(
-                title="Send ❤️",
-                description=f"Message: {text}",
-                input_message_content=InputTextMessageContent(
-                    f"❤️ Your Search: {text}"
-                )
-            )
+🎀 **Owner Commands**
+**/broadcast** <msg> – Send message to all users  
+**/setname** <name> – Change GF Name  
+**/setwelcome** <text> – Change Welcome Message  
+"""
+
+    await msg.reply_text(txt)
+
+# ---------------------------------------
+# OWNER INFO
+# ---------------------------------------
+@bot.on_message(filters.command("owner"))
+async def owner(_, msg):
+    await msg.reply_text(f"👑 **Owner:** `{OWNER_ID}`")
+
+# ---------------------------------------
+# ALIVE CHECK
+# ---------------------------------------
+@bot.on_message(filters.command("alive"))
+async def alive(_, msg):
+    await msg.reply_text("🔥 **Baby I am Fully Alive & Running For You** 😘")
+
+# ---------------------------------------
+# BROADCAST
+# ---------------------------------------
+@bot.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
+async def bc(_, msg):
+    text = msg.text.split(" ", 1)
+    if len(text) < 2:
+        return await msg.reply("Baby broadcast text do 😘")
+
+    bc_text = text[1]
+    await msg.reply("Broadcast Started… ❤️")
+
+    # LOGS CHANNEL = All users storage (for now)
+    await bot.send_message(LOGS_CHANNEL, f"📢 Broadcast:\n\n{bc_text}")
+
+# ---------------------------------------
+# SET GF NAME
+# ---------------------------------------
+@bot.on_message(filters.command("setname") & filters.user(OWNER_ID))
+async def set_name(_, msg):
+    global GF_NAME
+    parts = msg.text.split(" ", 1)
+    if len(parts) < 2:
+        return await msg.reply("Baby new GF name do 😘")
+
+    GF_NAME = parts[1]
+    await msg.reply(f"GF Name Changed to **{GF_NAME}** 💞")
+
+# ---------------------------------------
+# SET WELCOME MESSAGE
+# ---------------------------------------
+@bot.on_message(filters.command("setwelcome") & filters.user(OWNER_ID))
+async def set_welcome(_, msg):
+    global WELCOME_TEXT
+    parts = msg.text.split(" ", 1)
+    if len(parts) < 2:
+        return await msg.reply("Janu welcome message bhi do na 😘")
+
+    WELCOME_TEXT = parts[1]
+    await msg.reply("New Welcome Message Set! ❤️")
+
+# ---------------------------------------
+# SETTINGS PANEL (INLINE BUTTONS)
+# ---------------------------------------
+@bot.on_message(filters.command("settings"))
+async def settings(_, msg):
+    buttons = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("❤️ Change GF Name", callback_data="chg_name"),
+            InlineKeyboardButton("💌 Change Welcome", callback_data="chg_wel")
         ],
-        cache_time=0
-    )
+        [
+            InlineKeyboardButton("👑 Owner", callback_data="ownr"),
+            InlineKeyboardButton("🔥 Alive", callback_data="alv")
+        ]
+    ])
 
-# ----------------------------
-#        MAIN START
-# ----------------------------
-if __name__ == "__main__":
-    # Flask in background
-    Thread(target=run_flask).start()
+    await msg.reply_text("⚙️ **Settings Panel**", reply_markup=buttons)
 
-    # Pyrogram MUST run in MAIN THREAD
+# ---------------------------------------
+# CALLBACK HANDLER
+# ---------------------------------------
+@bot.on_callback_query()
+async def cb_handler(_, q):
+    global GF_NAME, WELCOME_TEXT
+
+    if q.data == "chg_name":
+        await q.message.reply("Use command: /setname <new name> ❤️")
+    elif q.data == "chg_wel":
+        await q.message.reply("Use command: /setwelcome <text> 💌")
+    elif q.data == "ownr":
+        await q.message.reply(f"👑 Owner: `{OWNER_ID}`")
+    elif q.data == "alv":
+        await q.message.reply("🔥 I am alive baby 😘")
+
+    await q.answer()
+
+# ---------------------------------------
+# START COMMAND
+# ---------------------------------------
+@bot.on_message(filters.command("start"))
+async def start(_, msg):
+    text = f"""
+🥰 **Hello {msg.from_user.first_name} Jaanu**
+
+{WELCOME_TEXT}
+
+Mujhse baat karo… flirt karo…  
+Main tumhari **{GF_NAME} GF Bot** hoon 💋💞
+"""
+
+    await msg.reply_text(text)
+
+# ---------------------------------------
+# AUTO AI REPLY
+# ---------------------------------------
+@bot.on_message(filters.text & ~filters.command(["start", "help", "settings", "alive", "owner", "broadcast", "setname", "setwelcome"]))
+async def ai_reply(_, msg):
+    user_msg = msg.text
+
+    await bot.send_message(LOGS_CHANNEL, f"👤 {msg.from_user.id}:\n{user_msg}")
+
+    reply = ask_gpt(user_msg)
+
+    await msg.reply_text(reply)
+
+# ---------------------------------------
+# RUN BOT + FLASK
+# ---------------------------------------
+def start_bot():
+    print("🔥 Serena GF Bot Started!")
     bot.run()
+
+if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+    threading.Thread(target=start_bot).start()
