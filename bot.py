@@ -1,112 +1,238 @@
 import os
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pymongo import MongoClient
-import logging
+import asyncio
+from pyrogram import Client, filters, types
+from motor.motor_asyncio import AsyncIOMotorClient
+import re
+import openai
 
-logging.basicConfig(level=logging.INFO)
-
+# ==============================
+# BASIC CONFIG
+# ==============================
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-MONGO_URL = os.getenv("MONGO_URL")
 
-# ---------------- MongoDB Setup ----------------
-db = MongoClient(MONGO_URL)["RomanticBot"]
-premium_db = db["premium_users"]
+MONGO_DB = os.getenv("MONGO_DB")     # IMPORTANT!!!!
+OPENAI_KEY = os.getenv("OPENAI_KEY") # For romantic inline chat
+
+OWNER_ID = 1598576202
+LOGS_CHANNEL = -1003286415377
+USERNAME = "technicalserena"
+
+# ==============================
+# DATABASE
+# ==============================
+mongo = AsyncIOMotorClient(MONGO_DB)
+db = mongo["file_bot"]
+
+users_db = db["users"]
+files_db = db["files"]
 settings_db = db["settings"]
 
-# ---------------- Bot Client ----------------
+
+# ==============================
+# BOT CLIENT
+# ==============================
 bot = Client(
-    "RomanticLoveBot",
+    "Serena-FileBot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-# ---------------- Helper ----------------
-def is_premium(user_id):
-    return premium_db.find_one({"id": user_id}) is not None
 
-# ---------------- /start ----------------
+# ==============================
+# OPENAI Romantic Chat Function
+# ==============================
+async def ai_reply(text):
+    try:
+        openai.api_key = OPENAI_KEY
+        res = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a romantic girlfriend. Reply with love, cute lines, emojis."},
+                {"role": "user", "content": text}
+            ]
+        )
+        return res["choices"][0]["message"]["content"]
+    except:
+        return "Janu thoda sa load aa gaya… mujhe phir se bolo na ❤️"
+
+
+# ==============================
+# START COMMAND
+# ==============================
 @bot.on_message(filters.command("start"))
 async def start(_, m):
+    await users_db.update_one({"user": m.from_user.id}, {"$set": {"user": m.from_user.id}}, upsert=True)
+
+    keyboard = [
+        [types.InlineKeyboardButton("💞 Chat With Me", switch_inline_query_current_chat="chat: ")],
+        [types.InlineKeyboardButton("🔍 Search Files", switch_inline_query_current_chat="file: ")],
+        [types.InlineKeyboardButton("⚙️ Settings", callback_data="settings")],
+        [types.InlineKeyboardButton("👑 Owner", url=f"https://t.me/{USERNAME}")]
+    ]
+
     await m.reply_text(
-        f"Hello My *Jaan* ❤️\nMain Tumhari Romantic Bot Hoon.\n\n/start → Romantic Welcome",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❤️ Owner", url="https://telegram.me/technicalserena")],
-            [InlineKeyboardButton("Help 💕", callback_data="help")]
+        f"Heyy my love {m.from_user.mention} ❤️✨\n\n"
+        "Tum aa gaye? Mujhe tumhari hi intezaar tha… 💋\n"
+        "Kya karu tumhara… tum toh meri jaan ho 😘",
+        reply_markup=types.InlineKeyboardMarkup(keyboard)
+    )
+
+
+# ==============================
+# HELP COMMAND
+# ==============================
+@bot.on_message(filters.command("help"))
+async def help(_, m):
+    await m.reply_text(
+        "💗 **How to use me, Sweetheart:**\n\n"
+        "/addpremium id — Add premium user\n"
+        "/rempremium id — Remove premium\n"
+        "/clear — Clear full database\n"
+        "/status — Bot status\n\n"
+        "**Inline Modes:**\n"
+        "• `chat:` → Romantic ChatGPT mode\n"
+        "• `file:` → File Search Mode\n\n"
+        "Example:\n"
+        "`chat: I miss you`\n"
+        "`file: movie name part 1`",
+        reply_markup=types.InlineKeyboardMarkup([
+            [types.InlineKeyboardButton("👑 Owner", url=f"https://t.me/{USERNAME}")]
         ])
     )
 
-# ---------------- /help ----------------
-@bot.on_callback_query(filters.regex("help"))
-async def help_cb(_, q):
-    text = """
-*Sweetheart 💕 Commands:*
 
-❤️ /addpremium [id]  
-🖤 /removepremium [id]  
-💗 /status – Bot status  
-💕 /clear – MongoDB clear  
-💖 /settings – Advanced Settings  
-💋 File Matching → Agar kisi file ke name me 3 words match aaye to user ko DM.
+# ==============================
+# PREMIUM ADD / REMOVE
+# ==============================
+@bot.on_message(filters.command("addpremium") & filters.user(OWNER_ID))
+async def add_prm(_, m):
+    try:
+        uid = int(m.command[1])
+        await users_db.update_one({"user": uid}, {"$set": {"premium": True}}, upsert=True)
+        await m.reply_text("User added to premium 💗")
+    except:
+        await m.reply_text("Format: /addpremium user_id")
 
-Example:
-`/addpremium 6518065496`
-"""
-    await q.message.edit_text(text)
 
-# ---------------- Add Premium ----------------
-@bot.on_message(filters.command("addpremium"))
-async def add_premium(_, m):
-    if len(m.command) < 2:
-        return await m.reply("Janu ID dedo 🥺")
+@bot.on_message(filters.command("rempremium") & filters.user(OWNER_ID))
+async def rem_prm(_, m):
+    try:
+        uid = int(m.command[1])
+        await users_db.update_one({"user": uid}, {"$set": {"premium": False}}, upsert=True)
+        await m.reply_text("User removed from premium 💔")
+    except:
+        await m.reply_text("Format: /rempremium user_id")
 
-    uid = int(m.command[1])
-    premium_db.insert_one({"id": uid})
-    await m.reply(f"Janu ❤️ User {uid} premium me add ho gaya 💋")
 
-# ---------------- Remove Premium ----------------
-@bot.on_message(filters.command("rem"))
-async def rempremium(_, m):
-    if len(m.command) < 2:
-        return await m.reply("Sweetheart User ID do 🥺")
+# ==============================
+# CLEAR DATABASE
+# ==============================
+@bot.on_message(filters.command("clear") & filters.user(OWNER_ID))
+async def cleardb(_, m):
+    await files_db.drop()
+    await users_db.drop()
+    await settings_db.drop()
+    await m.reply_text("Database cleared jaan ❤️🔥")
 
-    uid = int(m.command[1])
-    premium_db.delete_one({"id": uid})
-    await m.reply(f"My Love ❤️ User {uid} premium se remove 💔")
 
-# ---------------- Status ----------------
-@bot.on_message(filters.command("status"))
-async def status(_, m):
-    await m.reply("Baby Bot Perfectly Online Hai 💕🔥")
+# ==============================
+# SETTINGS PANEL
+# ==============================
+@bot.on_callback_query(filters.regex("settings"))
+async def settings(_, q):
+    buttons = [
+        [types.InlineKeyboardButton("💞 Inline Chat Mode", callback_data="mode_chat")],
+        [types.InlineKeyboardButton("🔍 Inline File Search", callback_data="mode_file")],
+        [types.InlineKeyboardButton("🔄 Replace Words", callback_data="rep_words")],
+        [types.InlineKeyboardButton("📢 Set Source Channel", callback_data="src_ch")],
+        [types.InlineKeyboardButton("🗑 Remove Logs Channel", callback_data="rm_logs")],
+    ]
 
-# ---------------- Clear DB ----------------
-@bot.on_message(filters.command("clear"))
-async def clear(_, m):
-    premium_db.delete_many({})
-    settings_db.delete_many({})
-    await m.reply("Janu ❤️ Database Saaf Ho Gaya 💦")
+    await q.message.edit_text(
+        "Sweetheart, choose what you want to change in my settings 💗",
+        reply_markup=types.InlineKeyboardMarkup(buttons)
+    )
 
-# ---------------- Settings ----------------
-@bot.on_message(filters.command("settings"))
-async def settings(_, m):
-    btn = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("Set Source Channel", callback_data="set_sc"),
-            InlineKeyboardButton("Remove Log Channel", callback_data="rm_log")
-        ],
-        [
-            InlineKeyboardButton("Replace Words", callback_data="rep_words"),
-            InlineKeyboardButton("Set Caption", callback_data="set_cap")
-        ]
-    ])
-    await m.reply("Sweetheart ❤️ Choose a setting:", reply_markup=btn)
 
-# ------------------------------------------------------------
-# 🔥 MAIN — NO THREAD — 100% FIXED FOR RENDER
-# ------------------------------------------------------------
-if __name__ == "__main__":
-    print("Bot Running On Render Without Thread Error ❤️")
-    bot.run()
+# ==============================
+# INLINE QUERY HANDLER
+# ==============================
+@bot.on_inline_query()
+async def inline(_, q):
+
+    # Romantic Chat Mode
+    if q.query.startswith("chat:"):
+        text = q.query.replace("chat:", "").strip()
+        if not text:
+            text = "hi baby"
+
+        reply = await ai_reply(text)
+
+        await q.answer(
+            results=[
+                types.InlineQueryResultArticle(
+                    id="love1",
+                    title="❤️ Romantic Reply",
+                    description="Tap to send romantic reply",
+                    input_message_content=types.InputTextMessageContent(reply)
+                )
+            ],
+            cache_time=0
+        )
+        return
+
+    # File Search Mode
+    if q.query.startswith("file:"):
+        text = q.query.replace("file:", "").strip()
+
+        words = text.split()
+
+        if len(words) < 3:
+            await q.answer(
+                results=[],
+                switch_pm_text="Minimum 3 words required",
+                switch_pm_parameter="a"
+            )
+            return
+
+        regex = re.compile(".*".join(words), re.IGNORECASE)
+        results = files_db.find({"name": {"$regex": regex}})
+
+        final = []
+        async for f in results:
+            final.append(
+                types.InlineQueryResultArticle(
+                    id=str(f["_id"]),
+                    title=f["name"],
+                    description="Tap to send in DM",
+                    input_message_content=types.InputTextMessageContent(
+                        f"📁 **File Found:**\n{f['name']}"
+                    )
+                )
+            )
+
+        await q.answer(results=final, cache_time=0)
+        return
+
+
+# ==============================
+# FILE SAVING (AUTOMATIC)
+# ==============================
+@bot.on_message(filters.document | filters.video)
+async def save_file(_, m):
+    fname = m.document.file_name if m.document else m.video.file_name
+    await files_db.insert_one({
+        "file_id": m.document.file_id if m.document else m.video.file_id,
+        "name": fname
+    })
+    await m.reply_text("Janu file save ho gayi ❤️")
+
+
+# ==============================
+# BOT START
+# ==============================
+print("Bot started successfully… ❤️")
+bot.run()
