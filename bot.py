@@ -74,6 +74,7 @@ async def help_cmd(client, message):
     )
     await message.reply_text(text)
 
+# ---------------- OWNER COMMANDS -----------------
 @bot.on_message(filters.private & filters.command(["addpremium","removepremium","ban","unban","clear","status"]))
 async def owner_cmds(client, message):
     if message.from_user.id != OWNER_ID:
@@ -164,15 +165,13 @@ async def save_files(client, message):
     except: pass
 
 # ---------------- RUN FLASK + BOT -----------------
-async def start_bot():
+async def main():
+    # start flask in background
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=PORT))
     await bot.start()
     print("🔥 Bot Launched Successfully!")
     await asyncio.Event().wait()  # keep running
 
-def run_flask():
-    app.run(host="0.0.0.0", port=PORT)
-
 if __name__ == "__main__":
-    import threading
-    threading.Thread(target=run_flask).start()
-    asyncio.run(start_bot())
+    asyncio.run(main())
