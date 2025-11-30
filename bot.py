@@ -1,3 +1,4 @@
+import os   # <<< ये लाइन add करनी है
 import asyncio
 from flask import Flask
 from pyrogram import Client
@@ -10,7 +11,7 @@ def home():
 
 BOT = Client(
     "serena_bot",
-    api_id=int(os.getenv("API_ID")),
+    api_id=int(os.getenv("API_ID")),       # अब काम करेगा
     api_hash=os.getenv("API_HASH"),
     bot_token=os.getenv("BOT_TOKEN")
 )
