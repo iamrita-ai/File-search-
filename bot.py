@@ -1,29 +1,29 @@
 import os
 import asyncio
-import time
+from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters, idle
 from pymongo import MongoClient
-import shutil
 import openai
 
-# ----------------- ENV -------------------
+# ------------------- ENV -------------------
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URL = os.getenv("MONGO_URL")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
 OWNER_ID = int(os.getenv("OWNER_ID", "6518065496"))
+PORT = int(os.getenv("PORT", "10000"))
 
 openai.api_key = OPENAI_KEY
 
-# ----------------- DATABASE -------------------
-db = MongoClient(MONGO_URL)["BABITA_BOT_DB"] if MONGO_URL is not None else None
+# ------------------- DATABASE -------------------
+db = MongoClient(MONGO_URL)["BABITA_BOT_DB"] if MONGO_URL else None
 users_col = db["users"] if db is not None else None
 premium_col = db["premium"] if db is not None else None
 files_col = db["files"] if db is not None else None
 
-# ----------------- FLASK -------------------
+# ------------------- FLASK -------------------
 app = Flask(__name__)
 
 @app.route("/")
@@ -31,10 +31,9 @@ def home():
     return "💗 Bot is running!"
 
 def run_flask():
-    port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=PORT)
 
-# ----------------- BOT -------------------
+# ------------------- BOT -------------------
 bot = Client(
     "babita_bot",
     api_id=API_ID,
@@ -42,7 +41,7 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# ----------------- ROMANTIC REPLY -------------------
+# ------------------- ROMANTIC REPLY -------------------
 def romantic_reply(text):
     replies = [
         f"Janu ❤️ tum bolti ho na… mera dil tumhari baaton me kho jata hai…",
@@ -53,7 +52,7 @@ def romantic_reply(text):
     return replies[hash(text) % len(replies)]
 
 def is_premium(uid):
-    return premium_col.find_one({"_id": uid}) is not None if premium_col is not None else False
+    return premium_col.find_one({"_id": uid}) is not None if premium_col else False
 
 async def ask_gpt(message):
     try:
@@ -68,7 +67,7 @@ async def ask_gpt(message):
     except:
         return romantic_reply(message)
 
-# ----------------- COMMANDS -------------------
+# ------------------- COMMANDS -------------------
 @bot.on_message(filters.command("start"))
 async def start_cmd(c, m):
     if users_col is not None:
@@ -94,15 +93,16 @@ async def help_cmd(c, m):
         "Romantic chat → Just type ❤️"
     )
 
+# ------------------- PREMIUM COMMANDS -------------------
 @bot.on_message(filters.command("addpremium"))
 async def add_premium(c, m):
     if m.from_user.id != OWNER_ID:
-        return await m.reply("Ye command sirf owner ke liye hai 😘")
+        return await m.reply("Ye command sirf owner ke liye 😘")
     try:
         uid = int(m.text.split()[1])
     except:
         return await m.reply("User ID do baby ❤️")
-    if premium_col is not None:
+    if premium_col:
         premium_col.update_one({"_id": uid}, {"$set": {}}, upsert=True)
     await m.reply("User ko premium de diya 💗")
 
@@ -114,31 +114,30 @@ async def remove_premium(c, m):
         uid = int(m.text.split()[1])
     except:
         return await m.reply("User ID do baby")
-    if premium_col is not None:
+    if premium_col:
         premium_col.delete_one({"_id": uid})
     await m.reply("Premium hata diya 💗")
 
+# ------------------- STATUS -------------------
 @bot.on_message(filters.command("status"))
 async def status_cmd(c, m):
-    total_users = users_col.count_documents({}) if users_col is not None else 0
-    total_premium = premium_col.count_documents({}) if premium_col is not None else 0
-    storage = shutil.disk_usage("/")
-    used = int((storage.used / storage.total) * 100)
-    ping = round((time.time() - m.date.timestamp()) * 1000)
+    total_users = users_col.count_documents({}) if users_col else 0
+    total_premium = premium_col.count_documents({}) if premium_col else 0
     await m.reply_text(
-        f"❤️ BOT STATUS ❤️\nUsers: {total_users}\nPremium: {total_premium}\nStorage Used: {used}%\nPing: {ping} ms"
+        f"❤️ BOT STATUS ❤️\nUsers: {total_users}\nPremium: {total_premium}"
     )
 
+# ------------------- CLEAR DATABASE -------------------
 @bot.on_message(filters.command("clear"))
 async def clear_db(c, m):
     if m.from_user.id != OWNER_ID:
-        return await m.reply("Ye sirf owner ke liye hai 💗")
-    if users_col is not None: users_col.delete_many({})
-    if premium_col is not None: premium_col.delete_many({})
-    if files_col is not None: files_col.delete_many({})
+        return await m.reply("Ye sirf owner ke liye 💗")
+    if users_col: users_col.delete_many({})
+    if premium_col: premium_col.delete_many({})
+    if files_col: files_col.delete_many({})
     await m.reply("Janu database saaf kar diya 💗")
 
-# ----------------- FILE SAVE -------------------
+# ------------------- FILE SAVE -------------------
 @bot.on_message(filters.document | filters.video)
 async def save_files(c, m):
     if files_col is None:
@@ -148,7 +147,7 @@ async def save_files(c, m):
     files_col.insert_one({"file_id": file_id, "name": fname.lower(), "uid": m.from_user.id})
     await m.reply("Sweetheart file save ho gayi 💗")
 
-# ----------------- CALLBACKS -------------------
+# ------------------- CALLBACKS -------------------
 @bot.on_callback_query()
 async def callback(c, q):
     if q.data == "settings":
@@ -162,7 +161,7 @@ async def callback(c, q):
             }
         )
 
-# ----------------- CHAT -------------------
+# ------------------- CHAT -------------------
 @bot.on_message(filters.private & filters.text & ~filters.command(["start","help","addpremium","rem","status","clear","setting"]))
 async def chat_handler(c, m):
     if is_premium(m.from_user.id):
@@ -171,7 +170,7 @@ async def chat_handler(c, m):
     else:
         await m.reply_text(romantic_reply(m.text))
 
-# ----------------- FILE SEARCH -------------------
+# ------------------- FILE SEARCH -------------------
 @bot.on_message(filters.regex("search ", flags=0))
 async def search_files(c, m):
     if files_col is None:
@@ -184,9 +183,13 @@ async def search_files(c, m):
         try: await m.reply_document(file["file_id"])
         except: pass
 
-# ----------------- RUN -------------------
+# ------------------- RUN -------------------
+def start_flask_thread():
+    thread = Thread(target=run_flask)
+    thread.start()
+
 async def main():
-    asyncio.to_thread(run_flask)
+    start_flask_thread()  # ✅ Flask running in thread
     await bot.start()
     print("Bot is running ❤️")
     await idle()  # ✅ Properly imported
