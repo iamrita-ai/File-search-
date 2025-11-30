@@ -14,8 +14,6 @@ MONGO_URL = os.getenv("MONGO_URL")
 PORT = int(os.getenv("PORT", 10000))
 
 OWNER_ID = 1598576202
-LOGS_CHANNEL = -1003286415377
-MY_USERNAME = "technicalserena"
 
 # ---------------- FLASK ----------------
 app = Flask(__name__)
@@ -28,11 +26,6 @@ def run_flask():
     app.run(host="0.0.0.0", port=PORT)
 
 # ---------------- MONGO ----------------
-db = None
-users = None
-premium = None
-settings = None
-
 try:
     mongo = MongoClient(MONGO_URL)
     db = mongo["RomanticBot"]
@@ -49,7 +42,7 @@ bot = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     workers=50,
-    in_memory=True          # 💥 IMPORTANT for Render (no session file issues)
+    in_memory=True
 )
 
 # ---------------- TEXTS ----------------
@@ -58,11 +51,9 @@ HELP_TEXT = """
 
 ❤️ `/start` – Romantic Welcome  
 ✨ `/help` – How to use me  
-👑 `/addpremium <id>` – Add user  
-💔 `/rempremium <id>` – Remove user  
 ⚡ `/status` – Bot Status  
 🗑 `/cleardb` – Clear MongoDB  
-🔍 Just send any text → File Search  
+🔍 Just send any text → Romantic reply  
 
 Made with love by @technicalserena 💋
 """
@@ -79,25 +70,22 @@ def romantic():
 
 # ---------------- HANDLERS ----------------
 
-@bot.on_message(filters.private & filters.command("start"))
+@bot.on_message(filters.private & filters.command(["start"]))
 async def start_cmd(c, m):
-    await m.reply_text(
-        f"❤️ Hello {m.from_user.first_name}!\n\n"
-        f"Main tumhari Romantic Assistant hoon, {romantic()}"
-    )
+    await m.reply_text(f"❤️ Hello {m.from_user.first_name}!\n\n{romantic()}")
 
 
-@bot.on_message(filters.private & filters.command("help"))
+@bot.on_message(filters.private & filters.command(["help"]))
 async def help_cmd(c, m):
     await m.reply_text(HELP_TEXT)
 
 
-@bot.on_message(filters.private & filters.command("status"))
+@bot.on_message(filters.private & filters.command(["status"]))
 async def status_cmd(c, m):
     await m.reply_text("💖 Bot Active Hai Baby\n⚡ Speed: Fast\n❤️ Love Mode: ON")
 
 
-@bot.on_message(filters.private & filters.command("cleardb"))
+@bot.on_message(filters.private & filters.command(["cleardb"]))
 async def clear_db(c, m):
     if m.from_user.id != OWNER_ID:
         return await m.reply_text("Only Owner Allowed ❌")
@@ -107,7 +95,8 @@ async def clear_db(c, m):
     await m.reply_text("🗑 MongoDB Cleared Sweetheart ❤️")
 
 
-@bot.on_message(filters.private & filters.text & ~filters.command())
+# ⭐ FINAL FIX — No filters.command bug
+@bot.on_message(filters.private & filters.text & ~filters.command(["start", "help", "status", "cleardb"]))
 async def romantic_reply(c, m):
     text = m.text.lower()
     match = users.find_one({"text": {"$regex": text}})
@@ -119,9 +108,7 @@ async def romantic_reply(c, m):
 
 # ---------------- MAIN LOOP ----------------
 async def main():
-    # Flask ko alag thread me chalao (Render required fix)
     Thread(target=run_flask).start()
-
     await bot.start()
     print("🔥 BOT STARTED & POLLING ACTIVE")
     await idle()
