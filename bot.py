@@ -3,87 +3,117 @@ import asyncio
 from threading import Thread
 from flask import Flask
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, InlineQuery, InlineQueryResultArticle, InputTextMessageContent
+import random
 
-# =========== ENV VARIABLES ===========
+# ========================================================
+# FIXED VALUES (Tumne diye hain)
+OWNER_ID = 1598576202
+LOGS_CHANNEL = -1003286415377
+# ========================================================
+
+# ================= ENVIRONMENT VARIABLES ================
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-OWNER_ID = int(os.getenv("OWNER_ID"))          # your id
-LOGS_CHANNEL = int(os.getenv("LOGS_CHANNEL"))  # your logs channel id
-
-PORT = int(os.getenv("PORT", "10000"))         # FIXED
-# ======================================
+PORT = int(os.getenv("PORT", "10000"))   # Render Web Service Fix
+# ========================================================
 
 
-# ---------- FLASK SERVER (Render Ke Liye) ----------
-flask_app = Flask(__name__)
+# ---------------- FLASK SERVER FOR RENDER ----------------
+app = Flask(__name__)
 
-@flask_app.route('/')
+@app.route("/")
 def home():
-    return "Bot is Running Successfully! 🔥"
+    return "❤️ Romantic Telegram Bot Running Successfully! ❤️"
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=PORT)
-# ---------------------------------------------------
+    app.run(host="0.0.0.0", port=PORT)
+# ----------------------------------------------------------
 
 
-# ---------- PYROGRAM BOT CLIENT ----------
+# ------------------- PYROGRAM BOT ------------------------
 bot = Client(
-    "romantic_bot",
+    "romantic_gf_bot",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     in_memory=True
 )
-# ---------------------------------------------------
+# ----------------------------------------------------------
 
 
-# ========== HANDLERS ==========
+# ============= Romantic Replies List ======================
+ROMANTIC_LINES = [
+    "Janu bolo na 😘",
+    "Haan baby, sun rahi hoon ❤️",
+    "Bolo Sweetheart 💋",
+    "Haan meri jaan 😍",
+    "Tumhari baaton ka intezaar rehta hai baby 😘",
+    "Janeman kya kar rahi ho tum? ❤️",
+    "Aapka message dil ko sukoon deta hai baby 💞",
+]
+# ==========================================================
 
-@bot.on_message(filters.command("start") & filters.private)
-async def start_handler(_, message: Message):
-    await message.reply(
+
+# ---------------- START COMMAND ---------------------------
+@bot.on_message(filters.private & filters.command("start"))
+async def start_cmd(_, message: Message):
+
+    await message.reply_text(
         f"Hi Baby 😘\n"
-        f"Main online hoon… tumhare liye ❤️\n"
-        f"/help bhi try kro Sweetheart 💋"
+        f"Main tumhari Romantic GF bot hoon ❤️\n"
+        f"Boloo na Sweetheart 💋"
     )
 
-    # logging to channel
+    # Logs channel me notification
     try:
-        await bot.send_message(LOGS_CHANNEL, f"New User Started: {message.from_user.id}")
+        await bot.send_message(LOGS_CHANNEL, f"🔥 New User Started: {message.from_user.id}")
     except:
         pass
 
-
-@bot.on_message(filters.private & filters.text)
-async def romantic_reply(_, message: Message):
-    text = message.text.lower()
-
-    # romantic style
-    replies = [
-        "Janu bolooo 😘",
-        "Haan Sweetheart ❤️",
-        "Bolo na Baby 💋",
-        "Janeman batao na 😍",
-        "Tumhari baatein sunke acha lgta hai ❤️"
-    ]
-
-    await message.reply(replies[0])
+# ----------------------------------------------------------
 
 
-# ========== BOT START FUNCTION (NO DEADLOCK) ==========
+# ------------------ NORMAL CHAT REPLY ---------------------
+@bot.on_message(filters.private & filters.text & ~filters.command(["start"]))
+async def gf_reply(_, message: Message):
+    reply = random.choice(ROMANTIC_LINES)
+    await message.reply_text(reply)
+# ----------------------------------------------------------
+
+
+# ================= INLINE MODE (3 letter min) =============
+@bot.on_inline_query()
+async def inline_search(_, query: InlineQuery):
+
+    text = query.query.strip()
+
+    if len(text) < 3:
+        return  # inline query minimum 3 words
+
+    result = InlineQueryResultArticle(
+        title=f"Send to Yourself ❤️",
+        description=f"Message: {text}",
+        input_message_content=InputTextMessageContent(
+            f"❤️ *Your Search Result:* {text}",
+            parse_mode="markdown"
+        )
+    )
+
+    await query.answer([result], cache_time=0)
+# -----------------------------------------------------------
+
+
+# ================= BOT START FUNCTION =====================
 def start_bot():
-    print("🔥 Bot is starting…")
-    bot.run()   # keeps running properly inside thread
-# ======================================================
+    print("🔥 Bot Launched Successfully!")
+    bot.run()
+# -----------------------------------------------------------
 
 
-# ========== MAIN STARTUP ==========
+# ======================== MAIN ============================
 if __name__ == "__main__":
-    # Start Flask (no blocking)
-    Thread(target=run_flask).start()
-
-    # Start Bot (no blocking, no await issues)
-    Thread(target=start_bot).start()
+    Thread(target=run_flask).start()    # Render ko port mil jayega
+    Thread(target=start_bot).start()    # Pyrogram bot
+# ===========================================================
