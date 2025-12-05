@@ -1,4 +1,4 @@
-fastapi==0.95.2
-uvicorn[standard]==0.22.0
-python-telegram-bot==20.5
-flask
+python-telegram-bot==20.7
+Flask==3.0.2
+aiofiles
+python-dotenv
