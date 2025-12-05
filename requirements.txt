@@ -1,9 +1,3 @@
-pyrogram==2.0.106
-tgcrypto
-flask
-motor
-pymongo
-openai==0.28.1
-dnspython
-requests
-urllib3
+fastapi==0.95.2
+uvicorn[standard]==0.22.0
+python-telegram-bot==20.5
