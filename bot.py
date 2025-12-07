@@ -27,9 +27,10 @@ app = Client("serenaunzipbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_T
 flask_app = Flask(__name__)
 
 def emoji(): return random.choice(EMOJIS)
+
 def make_token(n=6): return secrets.token_hex(n)
 
-# USER SETTINGS
+# === USER SETTINGS FUNCTIONS ===
 def get_user_settings(uid):
     s = settings_db.find_one({"user_id": uid}) or {}
     return {
@@ -44,12 +45,13 @@ def set_user_setting(uid, k, v):
 def reset_user_settings(uid):
     settings_db.delete_one({"user_id": uid})
 
+# === AI ROMANTIC REPLY ===
 async def romantic_gpt(user_input, user_id=None, ai_mode=True):
     if not GPT_API_KEY or not user_input or not ai_mode:
         return ""
     prompt = (
-        "Reply as a real AI girlfriend in Hinglish, sweet, romantic, fun, emotional, natural, with random emoji. "
-        "No repetition, short tone, real chatgpt-style."
+        "Reply as a real girlfriend in Hinglish. Sweet, romantic, fun, emotional, short, with random emoji. "
+        "No repetition, crisp like real love chat. End each reply with 1-2 different emoji."
     )
     url = "https://api.openai.com/v1/chat/completions"
     data = {
@@ -70,6 +72,7 @@ async def romantic_gpt(user_input, user_id=None, ai_mode=True):
         pass
     return ""
 
+# === FORCE JOIN CHECK ===
 async def check_force_join(user_id):
     try:
         member = await app.get_chat_member(FORCE_CHANNEL, user_id)
@@ -85,9 +88,10 @@ def get_force_btns(show_contact=True):
 
 CANCELLED_SESSIONS = set()
 
+# === GATED AI REPLY ===
 async def gated_reply(m, txt, btns=None, save_user=True, ai=True):
     if not await check_force_join(m.from_user.id):
-        await m.reply("Pehle update channel join karo! Tabhi magic chalega " + emoji(), reply_markup=get_force_btns())
+        await m.reply("Pehle update channel join karo baby! Tabhi magic chalega " + emoji(), reply_markup=get_force_btns())
         return "no_join"
     if save_user:
         users_db.update_one({"user_id": m.from_user.id}, {
@@ -96,15 +100,14 @@ async def gated_reply(m, txt, btns=None, save_user=True, ai=True):
     ai_reply = await romantic_gpt(txt, m.from_user.id, ai_mode=ai_mode)
     return await m.reply(txt + ("\n\n" + ai_reply if ai_reply else ""), reply_markup=btns)
 
-# ------------  SQUARE PROGRESS BAR  ------------
+# === SQUARE PROGRESS BAR ===
 def progress_box(cur, total, start_time, stage, token):
     percent = cur / total if total else 0
     mb_done = cur/1024/1024
     speed = mb_done / max(1, time.time() - start_time)
     remaining = int((total-cur)/1024/1024 / speed) if speed>0 else 0
-    boxsize = 9
+    boxsize = 8
     fill = int(percent*boxsize*boxsize)
-    bar = "⬜"*boxsize
     sq=[]
     for i in range(boxsize):
         row = []
@@ -132,7 +135,6 @@ async def progress_for_pyro(current, total, msg, stage_data):
     if token in CANCELLED_SESSIONS:
         raise asyncio.CancelledError("User cancelled")
 
-# ------------ USER SETTINGS INLINES ------------
 def get_settings_btns(s):
     col1 = [
         InlineKeyboardButton(f"Unzip Mode: {s['unzip_mode']}", callback_data=f"set_unzip|{s['unzip_mode']}"),
@@ -150,22 +152,45 @@ async def settings_cmd(c, m):
     await m.reply("👑 *Your Bot Settings:*\n- Unzip Mode: normal/fast\n- Ai Mode: romantic reply ON/OFF\n- Replace word for file rename\n- Reset to default\n", reply_markup=get_settings_btns(s))
     await c.send_message(LOG_CHANNEL, f"#SETTINGS {m.from_user.mention}")
 
+# === SETTINGS CALLBACK (separate) ===
 @app.on_callback_query()
-async def setting_cbq(c, q):
+async def cbq(c, q):
     data = q.data.split("|")
+    token = data[1] if len(data)>1 else None
+    # Unzip/password/cancel: FILE session buttons only!
+    if data[0] in ("unzip", "pass", "cancel") and token:
+        session = sessions_db.find_one({"token": token})
+        if not session: return await q.message.reply("Session expired. Nayi file send karo baby!")
+        file_id = session.get("file_id")
+        passwd = session.get("passwd", "")
+        if data[0] == "unzip":
+            await q.answer("Extraction ready...", show_alert=True)
+            await do_unzip(c, q, file_id, passwd, token)
+        elif data[0] == "pass":
+            sessions_db.update_one({"token":token}, {"$set": {"wait_pass":True}})
+            await q.message.reply("Reply karo `/pass Password` as reply baby!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel|{token}")]]))
+        elif data[0] == "cancel":
+            CANCELLED_SESSIONS.add(token)
+            await q.message.reply("Job cancelled! " + emoji())
+        return
+
+    # Settings panel only!
     if data[0] == "set_unzip":
-        # Toggle
         val = "fast" if data[1]=="normal" else "normal"
         set_user_setting(q.from_user.id, "unzip_mode", val)
+        s = get_user_settings(q.from_user.id)
+        await q.message.edit_reply_markup(reply_markup=get_settings_btns(s))
     elif data[0] == "set_ai":
         set_user_setting(q.from_user.id, "ai_mode", bool(int(data[1])))
+        s = get_user_settings(q.from_user.id)
+        await q.message.edit_reply_markup(reply_markup=get_settings_btns(s))
     elif data[0] == "replace_word":
         await q.message.reply("Send new words like:\n`hello serena`\nFrom -> To\nThis will rename any extracted file named 'hello...' to 'serena...'.")
     elif data[0] == "reset_setting":
         reset_user_settings(q.from_user.id)
         await q.message.reply("Settings reset! Default mode now.")
-    s = get_user_settings(q.from_user.id)
-    await q.message.edit_reply_markup(reply_markup=get_settings_btns(s))
+        s = get_user_settings(q.from_user.id)
+        await q.message.edit_reply_markup(reply_markup=get_settings_btns(s))
 
 @app.on_message(filters.command("replace") & filters.reply)
 async def replace_word_cmd(c, m):
@@ -175,13 +200,13 @@ async def replace_word_cmd(c, m):
     set_user_setting(m.from_user.id, "replace_word", [fromw, tow])
     await m.reply(f"Saved! Every extracted file named '{fromw}' will rename to '{tow}'.")
 
-# ------------ BOT PRIMARY COMMANDS ------------
+# === PRIMARY BOT COMMANDS ===
 @app.on_message(filters.command("start"))
 async def start_cmd(c, m):
     await gated_reply(m,
-    "Hello sweetheart! 😍\n"
-    "Main ek romantic AI archive bot hoon. Send kar koi document ya archive ZIP/RAR/DOCX mujhe, main sab kuch extract/rename kar dungi. Buttons milenge. Storage safe hai, files tumhe aur owner dono ko milengi.\n\n"
-    "Use /help for full guide.", btns=get_force_btns(), ai=True)
+        "Hello sweetheart! 😍\n"
+        "Main ek romantic archive bot hoon. Send kar koi document ya archive ZIP/RAR/DOCX mujhe, main sab kuch extract/rename kar dungi. Storage safe hai, files tumhe + log channel owner ko milengi.\n\n"
+        "Use /help for full guide.", btns=get_force_btns(), ai=True)
     await c.send_message(LOG_CHANNEL, f"#START {m.from_user.mention} {m.from_user.id}")
 
 @app.on_message(filters.command("help"))
@@ -196,7 +221,7 @@ f"{emoji()} *Welcome to Serena Romantic UnzipBot!* {emoji()}\n\n"
 "    • Password ho, 'Password' dabao fir `/pass yourpassword` reply karo\n"
 "    • Simple file hai to direct Unzip dabao\n"
 "3️⃣  Extracted files aapko & owner ko milenge (storage safe!)\n"
-"4️⃣  Ko bhi galat bhejo, romantic error reply\n"
+"4️⃣  Kuch bhi galat bhejo, romantic error reply\n"
 "\n"
 "━━━━━━━━━━━━━━━━━━━━━━\n"
 "📚   *Commands:*\n"
@@ -259,7 +284,7 @@ async def status_cmd(c, m):
     await gated_reply(m, stats, ai=False)
     await c.send_message(LOG_CHANNEL, f"#STATUS {stats}")
 
-# ------------- File/Unzip ---------------
+# === FILE/UNZIP LOGIC ===
 @app.on_message(filters.document & filters.private)
 async def doc_handler(c, m):
     fname = m.document.file_name
@@ -273,24 +298,6 @@ async def doc_handler(c, m):
     ])
     await gated_reply(m, f"File `{fname}` mil gayi baby! Unzip ya password set karo:", kb)
     await c.send_message(LOG_CHANNEL, f"#DOC {m.from_user.mention}: {fname}")
-
-@app.on_callback_query()
-async def cbq(c, q):
-    data = q.data.split("|")
-    token = data[1]
-    session = sessions_db.find_one({"token": token})
-    if not session: return await q.message.reply("Session expired. Nayi file send karo baby!")
-    if data[0] == "cancel":
-        CANCELLED_SESSIONS.add(token)
-        return await q.message.reply("Job cancelled! " + emoji())
-    file_id = session["file_id"]
-    passwd = session.get("passwd", "")
-    if data[0] == "unzip":
-        await q.answer("Extraction ready...", show_alert=True)
-        await do_unzip(c, q, file_id, passwd, token)
-    elif data[0] == "pass":
-        sessions_db.update_one({"token": token}, {"$set": {"wait_pass": True}})
-        await q.message.reply("Reply karo `/pass Password` as reply baby!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data=f"cancel|{token}")]]))
 
 @app.on_message(filters.command("pass") & filters.reply)
 async def pass_handler(c, m):
@@ -316,13 +323,6 @@ def apply_replace(file_name, uid):
     if rw and rw[0] and rw[1]:
         return re.sub(rw[0], rw[1], file_name, flags=re.I)
     return file_name
-
-async def progress_for_pyro(current, total, msg, stage_data):
-    (stage, start_time, token) = stage_data
-    text, inline = progress_box(current, total, start_time, stage, token)
-    await msg.edit_text(text, reply_markup=inline)
-    if token in CANCELLED_SESSIONS:
-        raise asyncio.CancelledError("User cancelled")
 
 async def aio_save(zipped, name, outp):
     data = zipped.read(name)
@@ -353,7 +353,6 @@ async def do_unzip(c, cbq, file_id, passwd, token):
                         extracted_files.append(out_path)
             else:
                 with zipfile.ZipFile(tfile) as zp:
-                    # normal/fast mode: (for demo, both same)
                     for name in zp.namelist():
                         out_name = apply_replace(os.path.basename(name), uid)
                         out_path = os.path.join(tmp_dir, "unzipped", out_name)
@@ -365,6 +364,7 @@ async def do_unzip(c, cbq, file_id, passwd, token):
             await app.send_message(LOG_CHANNEL, f"#UNZIP_FAIL {uid} {ex}")
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return
+        # Upload all files (user DM + log channel)
         files_uploaded = 0
         for ix, f in enumerate(extracted_files):
             await c.send_document(LOG_CHANNEL, f, caption=f"Tumhari unzip file [{ix+1}/{len(extracted_files)}] by {uid}",
