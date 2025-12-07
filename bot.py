@@ -14,7 +14,7 @@ API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 OWNER_ID = int(os.environ.get("OWNER_ID", 1598576202))
 LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", -1003286415377))
-FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", serenaunzipbot))
+FORCE_SUB_CHANNEL = int(os.environ.get("FORCE_SUB_CHANNEL", https://t.me/serenaunzipbot))
 
 # Bot
 app = Client("UnzipBot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
