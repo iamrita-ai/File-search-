@@ -1,33 +1,30 @@
-# Serena File Forwarder Bot
+# Telegram Unzip Bot
 
-A Telegram bot that allows you to fetch files from any channel and send them to users with a safe delay, preventing bans.  
-Built with **Pyrogram** and **MongoDB**.
+Unzips any document sent to bot (support all formats). Password archive handled, logs to channel, Render-ready Flask web hook.
 
-## 🚀 Features
-- **Safe file forwarding** with a 10-second delay between messages.
-- Fetch files from **multiple channels**.
-- **Admin controls**: Ban, Unban, Broadcast, Stats.
-- **MongoDB-based storage** for users, banned users, and logs.
-- Notify **admin** when the bot starts.
+## Deploy
 
----
+1. Fork this repo.
+2. Setup environment vars on Render:
+   - `API_ID`
+   - `API_HASH`
+   - `BOT_TOKEN`
+   - `OWNER_ID`
+   - `LOG_CHANNEL`
+   - `FORCE_SUB_CHANNEL`
+3. Deploy as web service (Python 3.11).
+4. Use `/start` to check.
 
-## 🌐 Deployment
+## Features
 
-### **Deploy on Render**
-1. **Create a Render account** and set up a new Web Service.
-2. **Upload the following files** to Render:
-    - `bot.py`
-    - `requirements.txt`
-    - `README.md`
+- Force join channel
+- Zip/rar/7z, encrypted supported (via password)
+- All logs in channel
+- Inline unzip & password btns
+- Render ready
 
-3. **Set up Environment Variables** in Render:
-   - **BOT_TOKEN**: Your bot token from BotFather.
-   - **API_ID**: Your Telegram API ID.
-   - **API_HASH**: Your Telegram API Hash.
-   - **MONGO_URL**: Your MongoDB URL (e.g., MongoDB Atlas URL).
-   - **OWNER_ID**: Your Telegram ID (admin).
-   - **LOG_CHANNEL**: Your Telegram channel ID for logging.
-   - **SOURCE_CHANNELS**: Comma-separated list of channel IDs (e.g., `-10011111111,-10022222222`).
+## Notes
 
-4. **Configure the Start Command** in Render's **Settings**:
+- Password-protected zip: Send `/pass mysecret` as reply to button message.
+- Owner: `/broadcast`, `/status`
+- 
