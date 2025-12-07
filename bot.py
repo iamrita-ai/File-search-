@@ -10,45 +10,43 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 from pymongo import MongoClient
 
-# --- ENVIRONMENT ---
+# ------ ENVIRONMENT -------
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-MONGO_URL = os.environ.get("MONGO_URL", "")
+MONGO_URL = os.environ.get("MONGO_URL")
 GPT_API_KEY = os.environ.get("GPT_API_KEY", "")
 OWNER_ID = int(os.environ.get("OWNER_ID", "1598576202"))
 LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "-1003286415377"))
 
-FORCE_CHANNEL = os.environ.get("FORCE_SUB_CHANNEL", "serenaunzipbot")  # username or id
+FORCE_CHANNEL = "serenaunzipbot"  # Only username! Do not use id
 
-# --- MONGO SETUP ---
-mclient = MongoClient(MONGO_URL)
-mdb = mclient["unzipbot"]
+# ---- MONGO SETUP ----
+mdb = MongoClient(MONGO_URL)["unzipbot"]
 users_db = mdb["users"]
 
-# ---- LOGGING ---
+# ---- LOGGING ----
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("unzip-bot")
 
-# ---- FLASK for Render
+# ---- FLASK for Render web health check ----
 flask_app = Flask(__name__)
 
-# --- BOT INSTANCE ---
+# ---- BOT INSTANCE ----
 app = Client("serenaunzipbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ========== ROMANTIC GPT REPLY ==========
+# ====== ROMANTIC GPT REPLY ======
 async def romantic_gpt(msg):
     if not GPT_API_KEY or not msg: return ""
     url = "https://api.openai.com/v1/chat/completions"
     payload = {
         "model": "gpt-3.5-turbo",
         "messages": [
-            {"role":"system","content": "Reply always romantic, sweet, brief in Hindi-English. User is your lover."},
-            {"role":"user","content": msg}
+            {"role": "system", "content": "Reply always sweet, romantic, short in Hinglish. User is your lover."},
+            {"role": "user", "content": msg}
         ],
         "max_tokens": 40,
-        "n": 1,
-        "temperature": 1.2
+        "n": 1, "temperature": 1.15
     }
     headers = {"Authorization": f"Bearer {GPT_API_KEY}", "Content-Type": "application/json"}
     try:
@@ -56,70 +54,57 @@ async def romantic_gpt(msg):
         if r.ok:
             text = r.json()['choices'][0]['message']['content'].strip()
             return f"\n\n💌 {text}"
-    except Exception:
-        pass
+    except Exception: pass
     return ""
 
-# ========== FORCE JOIN CHECK ==========
+# ====== FORCE JOIN CHECK ======
 async def check_force_join(user_id):
-    """
-    Public channel username: check membership by resolving invite link & status.
-    Channel ID: check via get_chat_member.
-    """
     try:
-        channel = FORCE_CHANNEL
-        if str(channel).lstrip("-").isdigit():
-            ch_id = int(channel)
-            member = await app.get_chat_member(ch_id, user_id)
-            if member.status not in [enums.ChatMemberStatus.MEMBER, enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return False
-        else:
-            ch_username = channel.lstrip("@")
-            member = await app.get_chat_member(ch_username, user_id)
-            if member.status not in [enums.ChatMemberStatus.MEMBER, enums.ChatMemberStatus.ADMINISTRATOR, enums.ChatMemberStatus.OWNER]:
-                return False
-        return True
+        member = await app.get_chat_member(FORCE_CHANNEL, user_id)
+        return member.status in [
+            enums.ChatMemberStatus.MEMBER,
+            enums.ChatMemberStatus.ADMINISTRATOR,
+            enums.ChatMemberStatus.OWNER
+        ]
     except Exception:
         return False
 
-# -- Join button markdown --
 def join_btn():
-    ch = str(FORCE_CHANNEL)
-    if ch.lstrip("-").isdigit():
-        # For id, show only text (no clickable link)
-        return InlineKeyboardMarkup([[InlineKeyboardButton("Join Channel & Try Again", url=f"https://t.me/{LOG_CHANNEL}")]])
-    else:
-        return InlineKeyboardMarkup([[InlineKeyboardButton("Join Channel", url=f"https://t.me/{ch.lstrip('@')}")]])
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("Join Update Channel", url="https://t.me/serenaunzipbot")],
+        [InlineKeyboardButton("Contact Owner", url="https://t.me/TechnicalSerena")]
+    ])
 
-# ===== REPLY WITH FORCE JOIN & ROMANTIC =====
+# ====== ROMANTIC GATED REPLY ======
 async def gated_reply(m, txt, btns=None, save_user=True):
     if not await check_force_join(m.from_user.id):
-        return await m.reply("Pehle mera channel join karo fir phir start karo 💞", reply_markup=join_btn())
+        return await m.reply("Pehle update channel join karo baby!", reply_markup=join_btn())
     if save_user:
         users_db.update_one({"user_id": m.from_user.id}, {"$set": {"user_id": m.from_user.id}}, upsert=True)
     romance = await romantic_gpt(txt)
     return await m.reply(txt + romance, reply_markup=btns)
 
-# ========== /START ==========
+# ======= /START =======
 @app.on_message(filters.command("start"))
 async def start(c, m):
-    txt = "Hi jaanu! Main zip/rar/doc sab kuch unlock kar dungi – bas file bhejo."
+    txt = "Hi baby! Main zip/rar/doc sab kuch unlock kar dungi – bas file bhejo."
     await gated_reply(m, txt)
     await c.send_message(LOG_CHANNEL, f"#START {m.from_user.mention} ({m.from_user.id})")
 
-# ======== /HELP =========
+# ======= /HELP =======
 @app.on_message(filters.command("help"))
 async def help(c, m):
     txt = ("Help:\n"
            "- Document bhejo, Unzip ya Password button milega\n"
-           "- Password wali ZIP ke liye /pass password reply karo\n"
+           "- Password zip ke liye /pass password reply karo\n"
            "- Status dekhne ke liye /status\n"
-           "- All logs safe channel me\n"
+           "- Channel join compulsory hai\n"
+           "- Har command pe tumhara romantic bot reply karega\n"
            )
     await gated_reply(m, txt)
     await c.send_message(LOG_CHANNEL, f"#HELP {m.from_user.mention} ({m.from_user.id})")
 
-# ======= /BROADCAST OWNER ONLY =====
+# ======= /BROADCAST OWNER ONLY =======
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
 async def broadcast(c, m):
     msg = m.reply_to_message or m
@@ -133,7 +118,7 @@ async def broadcast(c, m):
     await m.reply(f"Done! {sent} users ko bheja. {romantic}")
     await c.send_message(LOG_CHANNEL, f"#BROADCAST {sent}/{fail} users.")
 
-# ======= /STATUS =========
+# ======= /STATUS =======
 @app.on_message(filters.command("status"))
 async def status(c, m):
     user_count = users_db.count_documents({})
@@ -150,7 +135,7 @@ async def status(c, m):
     await gated_reply(m, stats)
     await c.send_message(LOG_CHANNEL, f"#STATUS {stats}")
 
-# == ACCEPT DOCUMENTS & BUTTONS ==
+# ===== FILES & BUTTONS =====
 @app.on_message(filters.document & filters.private)
 async def doc_handler(c, m):
     fname = m.document.file_name
@@ -168,12 +153,12 @@ async def cbq(c, q):
     if data[0] == "unzip":
         file_id = data[1]
         passwd = data[2] if len(data) > 2 else ""
-        await q.answer("Extract kar rahi hoon... Tum ruk jao!", show_alert=True)
+        await q.answer("Extract kar rahi hoon baby!", show_alert=True)
         await do_unzip(c, q, file_id, passwd)
     elif data[0] == "pass":
-        await q.message.reply("/pass YourPassword reply karo beta!")
+        await q.message.reply("/pass YourPassword reply karo sweetheart!")
 
-# ==== /PASS ==
+# ==== /PASS ====
 @app.on_message(filters.command("pass") & filters.reply)
 async def pass_handler(c, m):
     passwd = m.text.split(None, 1)[-1] if len(m.text.split()) > 1 else None
