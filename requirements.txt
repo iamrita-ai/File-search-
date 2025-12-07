@@ -1,6 +1,6 @@
-python-telegram-bot==20.7
-pyunpack
-patool
+pyrogram==2.0.106
+tgcrypto
+Flask
 aiofiles
-python-dotenv
+pyzipper
 psutil
