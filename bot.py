@@ -10,18 +10,18 @@ from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from flask import Flask
 from pymongo import MongoClient
 
-# ------ ENVIRONMENT -------
+# ---- ENVIRONMENT ----
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+OWNER_ID = int(os.environ.get("OWNER_ID", "1598576202"))
+LOG_CHANNEL = os.environ.get("LOG_CHANNEL", "-1003286415377")
 MONGO_URL = os.environ.get("MONGO_URL")
 GPT_API_KEY = os.environ.get("GPT_API_KEY", "")
-OWNER_ID = int(os.environ.get("OWNER_ID", "1598576202"))
-LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "-1003286415377"))
 
-FORCE_CHANNEL = "serenaunzipbot"  # Only username! Do not use id
+FORCE_CHANNEL = "serenaunzipbot"  # only username, never use '-100..'
 
-# ---- MONGO SETUP ----
+# ---- MONGO DB ----
 mdb = MongoClient(MONGO_URL)["unzipbot"]
 users_db = mdb["users"]
 
@@ -29,13 +29,11 @@ users_db = mdb["users"]
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("unzip-bot")
 
-# ---- FLASK for Render web health check ----
+# ---- BOT INSTANCE & FLASK ----
+app = Client("serenaunzipbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 flask_app = Flask(__name__)
 
-# ---- BOT INSTANCE ----
-app = Client("serenaunzipbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# ====== ROMANTIC GPT REPLY ======
+# === Romantic GPT Reply ===
 async def romantic_gpt(msg):
     if not GPT_API_KEY or not msg: return ""
     url = "https://api.openai.com/v1/chat/completions"
@@ -45,7 +43,7 @@ async def romantic_gpt(msg):
             {"role": "system", "content": "Reply always sweet, romantic, short in Hinglish. User is your lover."},
             {"role": "user", "content": msg}
         ],
-        "max_tokens": 40,
+        "max_tokens": 48,
         "n": 1, "temperature": 1.15
     }
     headers = {"Authorization": f"Bearer {GPT_API_KEY}", "Content-Type": "application/json"}
@@ -57,7 +55,7 @@ async def romantic_gpt(msg):
     except Exception: pass
     return ""
 
-# ====== FORCE JOIN CHECK ======
+# === Force Join Check ===
 async def check_force_join(user_id):
     try:
         member = await app.get_chat_member(FORCE_CHANNEL, user_id)
@@ -68,45 +66,53 @@ async def check_force_join(user_id):
         ]
     except Exception:
         return False
+                
+def inline_btns(force=True):
+    btn = [
+        [InlineKeyboardButton("Join Update Channel", url="https://t.me/serenaunzipbot")]
+    ]
+    btn.append([InlineKeyboardButton("Contact Owner", url="https://t.me/TechnicalSerena")])
+    return InlineKeyboardMarkup(btn)
 
-def join_btn():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Join Update Channel", url="https://t.me/serenaunzipbot")],
-        [InlineKeyboardButton("Contact Owner", url="https://t.me/TechnicalSerena")]
-    ])
-
-# ====== ROMANTIC GATED REPLY ======
-async def gated_reply(m, txt, btns=None, save_user=True):
+# === Gated romantic reply ===
+async def gated_reply(m, txt, btns=None, save_db=True):
     if not await check_force_join(m.from_user.id):
-        return await m.reply("Pehle update channel join karo baby!", reply_markup=join_btn())
-    if save_user:
+        return await m.reply("Pehle update channel join karo baby", reply_markup=inline_btns())
+    if save_db:
         users_db.update_one({"user_id": m.from_user.id}, {"$set": {"user_id": m.from_user.id}}, upsert=True)
     romance = await romantic_gpt(txt)
     return await m.reply(txt + romance, reply_markup=btns)
 
-# ======= /START =======
+# === /start ===
 @app.on_message(filters.command("start"))
-async def start(c, m):
-    txt = "Hi baby! Main zip/rar/doc sab kuch unlock kar dungi – bas file bhejo."
-    await gated_reply(m, txt)
+async def start(c,m):
+    await gated_reply(m, "Hi baby! Mujhe zip/rar/doc bhejo, sari files unlock kar dungi, saath me romantic baatein bhi.")
     await c.send_message(LOG_CHANNEL, f"#START {m.from_user.mention} ({m.from_user.id})")
 
-# ======= /HELP =======
+# === /help ===
 @app.on_message(filters.command("help"))
-async def help(c, m):
-    txt = ("Help:\n"
-           "- Document bhejo, Unzip ya Password button milega\n"
-           "- Password zip ke liye /pass password reply karo\n"
-           "- Status dekhne ke liye /status\n"
-           "- Channel join compulsory hai\n"
-           "- Har command pe tumhara romantic bot reply karega\n"
-           )
+async def help(c,m):
+    txt = (
+        "Bot Help:\n"
+        "- Document bhejo, niche Unzip/Password button milenge\n"
+        "- Password zip ke liye /pass password reply karo\n"
+        "- Status ke liye /status\n"
+        "- Cancel operation with /cancel\n"
+        "- Always channel join compulsory\n"
+        "- Har reply me romantic bot ki baat milegi"
+    )
     await gated_reply(m, txt)
     await c.send_message(LOG_CHANNEL, f"#HELP {m.from_user.mention} ({m.from_user.id})")
 
-# ======= /BROADCAST OWNER ONLY =======
+# === /cancel dummy ===
+@app.on_message(filters.command("cancel"))
+async def cancel_cmd(c, m):
+    await gated_reply(m, "Baby cancel ho gaya, tumhare bina main adhoori hoon!")
+    await c.send_message(LOG_CHANNEL, f"#CANCEL {m.from_user.mention} ({m.from_user.id})")
+
+# === /broadcast owner only ===
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
-async def broadcast(c, m):
+async def broadcast_cmd(c, m):
     msg = m.reply_to_message or m
     bc_text = msg.text or msg.caption
     sent, fail = 0, 0
@@ -118,24 +124,23 @@ async def broadcast(c, m):
     await m.reply(f"Done! {sent} users ko bheja. {romantic}")
     await c.send_message(LOG_CHANNEL, f"#BROADCAST {sent}/{fail} users.")
 
-# ======= /STATUS =======
+# === /status ===
 @app.on_message(filters.command("status"))
-async def status(c, m):
+async def status_cmd(c, m):
     user_count = users_db.count_documents({})
     ping = time.perf_counter()
-    await c.get_me()
-    ping = (time.perf_counter() - ping) * 1000
+    await c.get_me(); ping = (time.perf_counter()-ping)*1000
     stats = (
         f"Bot Status:\n"
         f"Active Users: {user_count}\n"
-        f"Ping: {ping:.1f} ms\n"
+        f"Ping: {ping:.2f} ms\n"
         f"RAM: {psutil.virtual_memory().percent}%\n"
         f"CPU: {psutil.cpu_percent()}%"
     )
     await gated_reply(m, stats)
     await c.send_message(LOG_CHANNEL, f"#STATUS {stats}")
 
-# ===== FILES & BUTTONS =====
+# === Document handler ===
 @app.on_message(filters.document & filters.private)
 async def doc_handler(c, m):
     fname = m.document.file_name
@@ -143,27 +148,27 @@ async def doc_handler(c, m):
         [InlineKeyboardButton("🗂 Unzip", callback_data=f"unzip|{m.document.file_id}|")],
         [InlineKeyboardButton("🔑 Password", callback_data=f"pass|{m.document.file_id}|")]
     ])
-    await gated_reply(m, f"File aayi: {fname}\nKya karna hai?", kb)
+    await gated_reply(m, f"{fname} aaya hai, kya karna hai baby?", kb)
     await c.send_message(LOG_CHANNEL, f"#DOC {m.from_user.mention}: {fname}")
 
-# ==== BUTTON HANDLER ====
+# === Callback handler ===
 @app.on_callback_query()
-async def cbq(c, q):
+async def cbq_handler(c, q):
     data = q.data.split('|')
     if data[0] == "unzip":
         file_id = data[1]
-        passwd = data[2] if len(data) > 2 else ""
+        passwd = data[2] if len(data)>2 else ""
         await q.answer("Extract kar rahi hoon baby!", show_alert=True)
         await do_unzip(c, q, file_id, passwd)
     elif data[0] == "pass":
-        await q.message.reply("/pass YourPassword reply karo sweetheart!")
+        await q.message.reply("Reply karo `/pass YourPassword` se baby!")
 
-# ==== /PASS ====
+# === /pass command ===
 @app.on_message(filters.command("pass") & filters.reply)
 async def pass_handler(c, m):
     passwd = m.text.split(None, 1)[-1] if len(m.text.split()) > 1 else None
     r = m.reply_to_message
-    if not passwd: return await m.reply("Password kya hai?")
+    if not passwd: return await m.reply("Password kya hai baby?")
     if r and r.reply_markup:
         for row in r.reply_markup.inline_keyboard:
             for btn in row:
@@ -174,9 +179,9 @@ async def pass_handler(c, m):
                     ])
                     romance = await romantic_gpt("Password mil gaya baby! Ab unzip karun?")
                     await r.edit_reply_markup(reply_markup=kb)
-                    await m.reply("Password set! Ab Unzip dabao." + romance)
+                    await m.reply("Password set ho gaya, ab Unzip dabao." + romance)
 
-# ==== PROGRESS BAR ====
+# === Progress bar ===
 def progress_bar(cur, total, size=16):
     percent = cur / total if total else 0
     fill = int(size * percent)
@@ -187,7 +192,7 @@ async def progress_for_pyro(current, total, msg, stage):
     if total == 0: return
     await msg.edit_text(f"{stage}\n{progress_bar(current, total)}")
 
-# === UNZIP LOGIC ===
+# === Unzip logic ===
 async def aio_save(zipped, name, outp):
     data = zipped.read(name)
     async with aiofiles.open(outp, "wb") as f: await f.write(data)
@@ -220,21 +225,22 @@ async def do_unzip(c, cbq, file_id, passwd):
         except Exception as ex:
             await cbq.message.reply(f"❌ Extraction failed: {ex}")
             return
-
+        # Upload all extracted files
+        files_uploaded = 0
         for ix, f in enumerate(extracted_files):
             await cbq.message.reply_document(f, caption=f"⬆️ Uploading [{ix+1}/{len(extracted_files)}]", progress=progress_for_pyro, progress_args=(msg2, f"⬆️ Uploading {os.path.basename(f)}"))
-        romance = await romantic_gpt("Sab file upload ho gayi! FLIRTING Time?")
-        await cbq.message.reply(f"Unzipped & uploaded {len(extracted_files)} file(s)! {romance}")
-        await c.send_message(LOG_CHANNEL, f"#UNZIP: {uid} {len(extracted_files)} files.")
+            files_uploaded += 1
+        romance = await romantic_gpt("Sab file upload ho gayi! Ab kuch pyar bhari baat karu?")
+        await cbq.message.reply(f"Unzipped & uploaded {files_uploaded} file(s)! {romance}")
+        await c.send_message(LOG_CHANNEL, f"#UNZIP: {uid} {files_uploaded} files.")
     except Exception as e:
         logger.error(str(e))
 
-# ---- FLASK Render health check ----
+# ---- Flask Render check ----
 @flask_app.route("/", methods=["GET", "POST"])
 def ping():
-    return "Serena romantic unzip bot running", 200
+    return "Serena romantic unzip bot is running", 200
 
-# ---- START BOTH SERVERS ----
 def run():
     import threading
     threading.Thread(target=lambda: flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))).start()
